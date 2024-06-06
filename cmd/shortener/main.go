@@ -15,43 +15,51 @@ func generateHash(url string) string {
 	return hex.EncodeToString(hash[:])[:length]
 }
 
-func handler(res http.ResponseWriter, req *http.Request) {
+func Handler(res http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case http.MethodPost:
-		if req.URL.Path != "/" {
-			http.Error(res, "Bad path", http.StatusBadRequest)
-			return
-		}
-
-		body, err := io.ReadAll(req.Body)
-
-		if err != nil {
-			http.Error(res, "Error reading body", http.StatusBadRequest)
-			return
-		}
-
-		link := string(body)
-		hash := generateHash(link)
-		links[hash] = link
-
-		res.WriteHeader(http.StatusCreated)
-		res.Write([]byte("http://localhost:8080/" + hash))
+		PostHandler(res, req)
 	case http.MethodGet:
-		hash := req.URL.Path[1:]
-		link, ok := links[hash]
-
-		if !ok {
-			http.Error(res, "Bad Request", http.StatusBadRequest)
-		}
-
-		http.Redirect(res, req, link, http.StatusTemporaryRedirect)
-
+		GetHandler(res, req)
 	default:
+		http.Error(res, "Bad method", http.StatusBadRequest)
 	}
 }
 
+func GetHandler(res http.ResponseWriter, req *http.Request) {
+	hash := req.URL.Path[1:]
+	link, ok := links[hash]
+
+	if !ok {
+		http.Error(res, "Bad Request", http.StatusBadRequest)
+	}
+
+	http.Redirect(res, req, link, http.StatusTemporaryRedirect)
+}
+
+func PostHandler(res http.ResponseWriter, req *http.Request) {
+	if req.URL.Path != "/" {
+		http.Error(res, "Bad path", http.StatusBadRequest)
+		return
+	}
+
+	body, err := io.ReadAll(req.Body)
+
+	if err != nil {
+		http.Error(res, "Error reading body", http.StatusBadRequest)
+		return
+	}
+
+	link := string(body)
+	hash := generateHash(link)
+	links[hash] = link
+
+	res.WriteHeader(http.StatusCreated)
+	res.Write([]byte("http://localhost:8080/" + hash))
+}
+
 func main() {
-	err := http.ListenAndServe("localhost:8080", http.HandlerFunc(handler))
+	err := http.ListenAndServe("localhost:8080", http.HandlerFunc(Handler))
 
 	if err != nil {
 		panic(err)
