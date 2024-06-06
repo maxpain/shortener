@@ -40,7 +40,7 @@ func handler(res http.ResponseWriter, req *http.Request) {
 		links[hash] = link
 
 		res.WriteHeader(http.StatusCreated)
-		res.Write([]byte(hash))
+		res.Write([]byte("http://localhost:8080/" + hash))
 	case http.MethodGet:
 		hash := req.URL.Path[1:]
 		link, ok := links[hash]
