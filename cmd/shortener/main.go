@@ -19,19 +19,14 @@ func handler(res http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case http.MethodPost:
 		if req.URL.Path != "/" {
-			http.Error(res, "Bad Request", http.StatusBadRequest)
-			return
-		}
-
-		if req.Header.Get("content-type") != "text/plain" {
-			http.Error(res, "Bad Request", http.StatusBadRequest)
+			http.Error(res, "Bad path", http.StatusBadRequest)
 			return
 		}
 
 		body, err := io.ReadAll(req.Body)
 
 		if err != nil {
-			http.Error(res, "Bad Request", http.StatusBadRequest)
+			http.Error(res, "Error reading body", http.StatusBadRequest)
 			return
 		}
 
