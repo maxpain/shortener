@@ -65,30 +65,33 @@ func TestHandler(t *testing.T) {
 			Handler(w, request)
 
 			res := w.Result()
+			defer res.Body.Close()
 			assert.Equal(t, test.want.code, res.StatusCode)
 		})
 	}
 }
 
 func TestShortener(t *testing.T) {
-	originalUrl := "https://google.com/"
+	originalURL := "https://google.com/"
 
-	request := httptest.NewRequest("POST", "/", strings.NewReader(originalUrl))
+	request := httptest.NewRequest("POST", "/", strings.NewReader(originalURL))
 	w := httptest.NewRecorder()
 	Handler(w, request)
 	res := w.Result()
+	defer res.Body.Close()
 
 	resBody, err := io.ReadAll(res.Body)
 	require.NoError(t, err)
 
-	shortenedUrl := string(resBody)
-	assert.NotEmpty(t, shortenedUrl)
+	shortenedURL := string(resBody)
+	assert.NotEmpty(t, shortenedURL)
 
-	request = httptest.NewRequest("GET", shortenedUrl, nil)
+	request = httptest.NewRequest("GET", shortenedURL, nil)
 	w = httptest.NewRecorder()
 	Handler(w, request)
-	res = w.Result()
+	res2 := w.Result()
+	defer res2.Body.Close()
 
-	assert.Equal(t, http.StatusTemporaryRedirect, res.StatusCode)
-	assert.Equal(t, originalUrl, res.Header.Get("Location"))
+	assert.Equal(t, http.StatusTemporaryRedirect, res2.StatusCode)
+	assert.Equal(t, originalURL, res2.Header.Get("Location"))
 }
