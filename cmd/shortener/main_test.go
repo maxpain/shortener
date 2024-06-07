@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maxpain/shortener/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,7 +86,7 @@ func TestShortener(t *testing.T) {
 	assert.NotEmpty(t, shortenedURL)
 	assert.Equal(t, http.StatusCreated, response.StatusCode)
 
-	hashPath := strings.Replace(shortenedURL, ts.URL, "", 1)
+	hashPath := strings.Replace(shortenedURL, *config.BaseUrl, "", 1)
 	response2, _ := testRequest(t, ts, http.MethodGet, hashPath, "")
 	defer response2.Body.Close()
 

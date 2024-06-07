@@ -7,6 +7,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/maxpain/shortener/config"
+	"github.com/maxpain/shortener/internal/utils"
 )
 
 var links = make(map[string]string)
@@ -47,9 +49,14 @@ func PostHandler(rw http.ResponseWriter, r *http.Request) {
 
 	hash := generateHash(link)
 	links[hash] = link
+	fullURL, err := utils.СonstructUrl(*config.BaseUrl, hash)
+
+	if err != nil {
+		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+	}
 
 	rw.WriteHeader(http.StatusCreated)
-	rw.Write([]byte("http://" + r.Host + "/" + hash))
+	rw.Write([]byte(fullURL))
 }
 
 func NotFoundHandler(rw http.ResponseWriter, r *http.Request) {
@@ -68,7 +75,9 @@ func Router() chi.Router {
 }
 
 func main() {
-	err := http.ListenAndServe("localhost:8080", Router())
+	config.Init()
+
+	err := http.ListenAndServe(*config.ServerAddr, Router())
 
 	if err != nil {
 		panic(err)
