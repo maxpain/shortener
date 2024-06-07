@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
 )
 
 var links = make(map[string]string)
@@ -15,51 +17,58 @@ func generateHash(url string) string {
 	return hex.EncodeToString(hash[:])[:length]
 }
 
-func Handler(res http.ResponseWriter, req *http.Request) {
-	switch req.Method {
-	case http.MethodPost:
-		PostHandler(res, req)
-	case http.MethodGet:
-		GetHandler(res, req)
-	default:
-		http.Error(res, "Bad method", http.StatusBadRequest)
-	}
-}
-
-func GetHandler(res http.ResponseWriter, req *http.Request) {
-	hash := req.URL.Path[1:]
+func GetHandler(rw http.ResponseWriter, r *http.Request) {
+	hash := chi.URLParam(r, "hash")
 	link, ok := links[hash]
 
 	if !ok {
-		http.Error(res, "Bad Request", http.StatusBadRequest)
+		http.Error(rw, "Link not found", http.StatusBadRequest)
 	}
 
-	http.Redirect(res, req, link, http.StatusTemporaryRedirect)
+	http.Redirect(rw, r, link, http.StatusTemporaryRedirect)
 }
 
-func PostHandler(res http.ResponseWriter, req *http.Request) {
-	if req.URL.Path != "/" {
-		http.Error(res, "Bad path", http.StatusBadRequest)
-		return
-	}
-
-	body, err := io.ReadAll(req.Body)
+func PostHandler(rw http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
 
 	if err != nil {
-		http.Error(res, "Error reading body", http.StatusBadRequest)
+		http.Error(rw, "Error reading body", http.StatusBadRequest)
 		return
 	}
 
+	defer r.Body.Close()
+
 	link := string(body)
+
+	if link == "" {
+		http.Error(rw, "Empty body", http.StatusBadRequest)
+		return
+	}
+
 	hash := generateHash(link)
 	links[hash] = link
 
-	res.WriteHeader(http.StatusCreated)
-	res.Write([]byte("http://localhost:8080/" + hash))
+	rw.WriteHeader(http.StatusCreated)
+	rw.Write([]byte("http://" + r.Host + "/" + hash))
+}
+
+func NotFoundHandler(rw http.ResponseWriter, r *http.Request) {
+	http.Error(rw, "Not found", http.StatusBadRequest)
+}
+
+func Router() chi.Router {
+	r := chi.NewRouter()
+
+	r.Get("/{hash}", GetHandler)
+	r.Post("/", PostHandler)
+	r.NotFound(NotFoundHandler)
+	r.MethodNotAllowed(NotFoundHandler)
+
+	return r
 }
 
 func main() {
-	err := http.ListenAndServe("localhost:8080", http.HandlerFunc(Handler))
+	err := http.ListenAndServe("localhost:8080", Router())
 
 	if err != nil {
 		panic(err)
