@@ -36,8 +36,6 @@ func testRequest(t *testing.T, ts *httptest.Server, method, path, body string) (
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	defer resp.Body.Close()
-
 	return resp, string(respBody)
 }
 
@@ -71,6 +69,7 @@ func TestRouter(t *testing.T) {
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
 			res, _ := testRequest(t, ts, test.method, test.path, test.body)
+			defer res.Body.Close()
 
 			assert.Equal(t, test.code, res.StatusCode)
 		})
@@ -81,12 +80,15 @@ func TestShortener(t *testing.T) {
 	ts := httptest.NewServer(Router())
 	originalURL := "https://google.com/"
 	response, shortenedURL := testRequest(t, ts, http.MethodPost, "/", originalURL)
+	defer response.Body.Close()
+
 	assert.NotEmpty(t, shortenedURL)
 	assert.Equal(t, http.StatusCreated, response.StatusCode)
 
 	hashPath := strings.Replace(shortenedURL, ts.URL, "", 1)
-
 	response2, _ := testRequest(t, ts, http.MethodGet, hashPath, "")
+	defer response2.Body.Close()
+
 	assert.Equal(t, http.StatusTemporaryRedirect, response2.StatusCode)
 	assert.Equal(t, originalURL, response2.Header.Get("Location"))
 }
