@@ -49,7 +49,7 @@ func PostHandler(rw http.ResponseWriter, r *http.Request) {
 
 	hash := generateHash(link)
 	links[hash] = link
-	fullURL, err := utils.СonstructURL(*config.BaseUrl, hash)
+	fullURL, err := utils.СonstructURL(*config.BaseURL, hash)
 
 	if err != nil {
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
