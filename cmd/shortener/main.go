@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/maxpain/shortener/config"
+	"github.com/maxpain/shortener/internal/logger"
 	"github.com/maxpain/shortener/internal/utils"
 )
 
@@ -66,6 +67,8 @@ func NotFoundHandler(rw http.ResponseWriter, r *http.Request) {
 func Router() chi.Router {
 	r := chi.NewRouter()
 
+	r.Use(logger.Middleware)
+
 	r.Get("/{hash}", GetHandler)
 	r.Post("/", PostHandler)
 	r.NotFound(NotFoundHandler)
@@ -76,6 +79,7 @@ func Router() chi.Router {
 
 func main() {
 	config.Init()
+	logger.Init()
 
 	err := http.ListenAndServe(*config.ServerAddr, Router())
 
