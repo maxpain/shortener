@@ -43,7 +43,9 @@ func testRequest(t *testing.T, ts *httptest.Server, method string, path string, 
 }
 
 func TestRouter(t *testing.T) {
-	app := NewApp()
+	app, err := NewApp("")
+	require.NoError(t, err)
+
 	ts := httptest.NewServer(app.Router)
 
 	testCases := []testCase{
@@ -81,7 +83,9 @@ func TestRouter(t *testing.T) {
 }
 
 func TestShortener(t *testing.T) {
-	app := NewApp()
+	app, err := NewApp("")
+	require.NoError(t, err)
+
 	ts := httptest.NewServer(app.Router)
 
 	originalURL := "https://google.com/"
@@ -100,7 +104,8 @@ func TestShortener(t *testing.T) {
 }
 
 func TestShortenerJSON(t *testing.T) {
-	app := NewApp()
+	app, err := NewApp("")
+	require.NoError(t, err)
 	ts := httptest.NewServer(app.Router)
 
 	request := struct {
