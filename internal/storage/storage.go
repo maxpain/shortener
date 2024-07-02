@@ -9,7 +9,7 @@ import (
 	"os"
 
 	"github.com/maxpain/shortener/config"
-	"github.com/maxpain/shortener/internal/logger"
+	"github.com/maxpain/shortener/internal/log"
 	"github.com/maxpain/shortener/internal/utils"
 	"go.uber.org/zap"
 )
@@ -17,8 +17,9 @@ import (
 const length = 7
 
 type Storage struct {
-	links map[string]string
-	file  *os.File
+	links   map[string]string
+	file    *os.File
+	baseURL string
 }
 
 type linkData struct {
@@ -26,14 +27,15 @@ type linkData struct {
 	URL  string `json:"url"`
 }
 
-func NewStorage(filePath string) (*Storage, error) {
+func NewStorage(cfg *config.Configuration, logger *log.Logger) (*Storage, error) {
 	s := &Storage{
-		links: make(map[string]string),
-		file:  nil,
+		links:   make(map[string]string),
+		file:    nil,
+		baseURL: cfg.BaseURL,
 	}
 
-	if filePath != "" {
-		file, err := os.OpenFile(filePath, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
+	if cfg.FileStoragePath != "" {
+		file, err := os.OpenFile(cfg.FileStoragePath, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
 
 		if err != nil {
 			return nil, err
@@ -54,7 +56,7 @@ func NewStorage(filePath string) (*Storage, error) {
 				return nil, err
 			}
 
-			logger.Log.Debug("Loaded link",
+			logger.Debug("Loaded link",
 				zap.String("hash", link.Hash),
 				zap.String("url", link.URL),
 			)
@@ -89,7 +91,7 @@ func (s *Storage) Save(url string) (string, error) {
 	}
 
 	s.links[hash] = url
-	fullURL, err := utils.СonstructURL(*config.BaseURL, hash)
+	fullURL, err := utils.СonstructURL(s.baseURL, hash)
 
 	if err != nil {
 		return "", errors.New("failed to construct URL")

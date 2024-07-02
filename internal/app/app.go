@@ -2,25 +2,31 @@ package app
 
 import (
 	"github.com/go-chi/chi/v5"
+	"github.com/maxpain/shortener/config"
 	"github.com/maxpain/shortener/internal/gzip"
 	"github.com/maxpain/shortener/internal/handler"
-	"github.com/maxpain/shortener/internal/logger"
+	"github.com/maxpain/shortener/internal/log"
 	"github.com/maxpain/shortener/internal/storage"
 )
 
-type App struct {
+type Application struct {
 	Router *chi.Mux
 }
 
-func NewApp(fileStoragePath string) (*App, error) {
-	storage, err := storage.NewStorage(fileStoragePath)
+func NewApplication(cfg *config.Configuration, logger *log.Logger) (*Application, error) {
+	storage, err := storage.NewStorage(cfg, logger)
 
 	if err != nil {
 		return nil, err
 	}
 
 	handler := handler.NewHandler(storage)
+	router := initRouter(handler, logger)
 
+	return &Application{Router: router}, nil
+}
+
+func initRouter(handler *handler.Handler, logger *log.Logger) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(logger.Middleware)
@@ -32,5 +38,5 @@ func NewApp(fileStoragePath string) (*App, error) {
 	r.NotFound(handler.NotFound)
 	r.MethodNotAllowed(handler.NotFound)
 
-	return &App{Router: r}, nil
+	return r
 }

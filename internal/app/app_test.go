@@ -4,15 +4,39 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	stdlog "log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/maxpain/shortener/config"
+	"github.com/maxpain/shortener/internal/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var (
+	application *Application
+	logger      *log.Logger
+	cfg         *config.Configuration
+)
+
+func init() {
+	var err error
+	logger, err = log.NewLogger()
+
+	if err != nil {
+		stdlog.Fatalf("Failed to initialize logger: %v", err)
+	}
+
+	cfg = config.NewConfiguration()
+	application, err = NewApplication(cfg, logger)
+
+	if err != nil {
+		logger.Sugar().Fatalf("Failed to initialize application: %v", err)
+	}
+}
 
 type testCase struct {
 	name   string
@@ -43,10 +67,7 @@ func testRequest(t *testing.T, ts *httptest.Server, method string, path string, 
 }
 
 func TestRouter(t *testing.T) {
-	app, err := NewApp("")
-	require.NoError(t, err)
-
-	ts := httptest.NewServer(app.Router)
+	ts := httptest.NewServer(application.Router)
 
 	testCases := []testCase{
 		{
@@ -83,10 +104,7 @@ func TestRouter(t *testing.T) {
 }
 
 func TestShortener(t *testing.T) {
-	app, err := NewApp("")
-	require.NoError(t, err)
-
-	ts := httptest.NewServer(app.Router)
+	ts := httptest.NewServer(application.Router)
 
 	originalURL := "https://google.com/"
 	response, shortenedURL := testRequest(t, ts, http.MethodPost, "/", strings.NewReader(originalURL))
@@ -95,7 +113,7 @@ func TestShortener(t *testing.T) {
 	assert.NotEmpty(t, shortenedURL)
 	assert.Equal(t, http.StatusCreated, response.StatusCode)
 
-	hashPath := strings.Replace(string(shortenedURL), *config.BaseURL, "", 1)
+	hashPath := strings.Replace(string(shortenedURL), cfg.BaseURL, "", 1)
 	response2, _ := testRequest(t, ts, http.MethodGet, hashPath, nil)
 	defer response2.Body.Close()
 
@@ -104,9 +122,7 @@ func TestShortener(t *testing.T) {
 }
 
 func TestShortenerJSON(t *testing.T) {
-	app, err := NewApp("")
-	require.NoError(t, err)
-	ts := httptest.NewServer(app.Router)
+	ts := httptest.NewServer(application.Router)
 
 	request := struct {
 		URL string `json:"url"`
@@ -132,7 +148,7 @@ func TestShortenerJSON(t *testing.T) {
 
 	assert.NotEmpty(t, response.Result)
 
-	hashPath := strings.Replace(response.Result, *config.BaseURL, "", 1)
+	hashPath := strings.Replace(response.Result, cfg.BaseURL, "", 1)
 	response2, _ := testRequest(t, ts, http.MethodGet, hashPath, nil)
 	defer response2.Body.Close()
 

@@ -1,4 +1,4 @@
-package logger
+package log
 
 import (
 	"net/http"
@@ -7,16 +7,18 @@ import (
 	"go.uber.org/zap"
 )
 
-var Log = zap.NewNop()
+type Logger struct {
+	*zap.Logger
+}
 
-func Init() {
-	logger, err := zap.NewDevelopment()
+func NewLogger() (*Logger, error) {
+	zapLogger, err := zap.NewDevelopment()
 
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	Log = logger
+	return &Logger{zapLogger}, nil
 }
 
 type responseData struct {
@@ -41,7 +43,7 @@ func (w *loggingResponseWriter) WriteHeader(statusCode int) {
 	w.responseData.status = statusCode
 }
 
-func Middleware(next http.Handler) http.Handler {
+func (l *Logger) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		responseData := &responseData{}
 
@@ -54,7 +56,7 @@ func Middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(&lw, r)
 		duration := time.Since(startedAt)
 
-		Log.Info("Incoming HTTP request",
+		l.Info("Incoming HTTP request",
 			zap.String("Method", r.Method),
 			zap.String("URI", r.URL.Path),
 			zap.Duration("Duration", duration),

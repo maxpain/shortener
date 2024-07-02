@@ -5,24 +5,36 @@ import (
 	"os"
 )
 
-var (
-	ServerAddr      = flag.String("a", ":8080", "Server address")
-	BaseURL         = flag.String("b", "http://localhost:8080", "Base url for generated links")
-	FileStoragePath = flag.String("f", "/tmp/short-url-db.json", "Path to file storage")
-)
+type Configuration struct {
+	ServerAddr      string
+	BaseURL         string
+	FileStoragePath string
+}
 
-func Init() {
+func NewConfiguration() *Configuration {
+	return &Configuration{
+		ServerAddr:      ":8080",
+		BaseURL:         "http://localhost:8080",
+		FileStoragePath: "/tmp/short-url-db.json",
+	}
+}
+
+func (c *Configuration) ParseFlags() {
+	flag.StringVar(&c.ServerAddr, "a", c.ServerAddr, "Server address")
+	flag.StringVar(&c.BaseURL, "b", c.BaseURL, "Base url for generated links")
+	flag.StringVar(&c.FileStoragePath, "f", c.FileStoragePath, "Path to file storage")
+
 	flag.Parse()
 
 	if envServerAddr := os.Getenv("SERVER_ADDRESS"); envServerAddr != "" {
-		*ServerAddr = envServerAddr
+		c.ServerAddr = envServerAddr
 	}
 
 	if envBaseURL := os.Getenv("BASE_URL"); envBaseURL != "" {
-		*BaseURL = envBaseURL
+		c.BaseURL = envBaseURL
 	}
 
 	if envFileStoragePath, ok := os.LookupEnv("FILE_STORAGE_PATH"); ok {
-		*FileStoragePath = envFileStoragePath
+		c.FileStoragePath = envFileStoragePath
 	}
 }
