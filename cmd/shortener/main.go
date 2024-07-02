@@ -12,8 +12,13 @@ func main() {
 	config.Init()
 	logger.Init()
 
-	app := app.NewApp()
-	err := http.ListenAndServe(*config.ServerAddr, app.Router)
+	app, err := app.NewApp(*config.FileStoragePath)
+
+	if err != nil {
+		panic(err)
+	}
+
+	err = http.ListenAndServe(*config.ServerAddr, app.Router)
 
 	if err != nil {
 		panic(err)

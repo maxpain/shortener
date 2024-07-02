@@ -12,8 +12,13 @@ type App struct {
 	Router *chi.Mux
 }
 
-func NewApp() *App {
-	storage := storage.NewStorage()
+func NewApp(fileStoragePath string) (*App, error) {
+	storage, err := storage.NewStorage(fileStoragePath)
+
+	if err != nil {
+		return nil, err
+	}
+
 	handler := handler.NewHandler(storage)
 
 	r := chi.NewRouter()
@@ -27,5 +32,5 @@ func NewApp() *App {
 	r.NotFound(handler.NotFound)
 	r.MethodNotAllowed(handler.NotFound)
 
-	return &App{Router: r}
+	return &App{Router: r}, nil
 }

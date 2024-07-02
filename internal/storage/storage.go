@@ -1,30 +1,94 @@
 package storage
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"os"
 
 	"github.com/maxpain/shortener/config"
+	"github.com/maxpain/shortener/internal/logger"
 	"github.com/maxpain/shortener/internal/utils"
+	"go.uber.org/zap"
 )
 
 const length = 7
 
 type Storage struct {
 	links map[string]string
+	file  *os.File
 }
 
-func NewStorage() *Storage {
-	return &Storage{
+type linkData struct {
+	Hash string `json:"hash"`
+	URL  string `json:"url"`
+}
+
+func NewStorage(filePath string) (*Storage, error) {
+	s := &Storage{
 		links: make(map[string]string),
+		file:  nil,
 	}
+
+	if filePath != "" {
+		file, err := os.OpenFile(filePath, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
+
+		if err != nil {
+			return nil, err
+		}
+
+		s.file = file
+
+		scanner := bufio.NewScanner(file)
+
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			var link linkData
+
+			err := json.Unmarshal([]byte(line), &link)
+
+			if err != nil {
+				return nil, err
+			}
+
+			logger.Log.Debug("Loaded link",
+				zap.String("hash", link.Hash),
+				zap.String("url", link.URL),
+			)
+
+			s.links[link.Hash] = link.URL
+		}
+	}
+
+	return s, nil
 }
 
 func (s *Storage) Save(url string) (string, error) {
 	hash := generateHash(url)
-	s.links[hash] = url
 
+	if _, ok := s.links[hash]; !ok && s.file != nil {
+		link := linkData{
+			URL:  url,
+			Hash: hash,
+		}
+
+		jsonString, err := json.Marshal(link)
+
+		if err != nil {
+			return "", err
+		}
+
+		_, err = s.file.WriteString(string(jsonString) + "\n")
+
+		if err != nil {
+			return "", err
+		}
+	}
+
+	s.links[hash] = url
 	fullURL, err := utils.СonstructURL(*config.BaseURL, hash)
 
 	if err != nil {
