@@ -7,10 +7,12 @@ import (
 	stdlog "log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/maxpain/shortener/config"
+	"github.com/maxpain/shortener/internal/db"
 	"github.com/maxpain/shortener/internal/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,9 +22,10 @@ var (
 	application *Application
 	logger      *log.Logger
 	cfg         *config.Configuration
+	DB          *db.Database
 )
 
-func init() {
+func TestMain(m *testing.M) {
 	var err error
 	logger, err = log.NewLogger()
 
@@ -31,11 +34,22 @@ func init() {
 	}
 
 	cfg = config.NewConfiguration()
-	application, err = NewApplication(cfg, logger)
+	DB, err = db.NewDatabase(cfg)
+
+	if err != nil {
+		logger.Sugar().Fatalf("Error creating database: %v", err)
+	}
+
+	application, err = NewApplication(cfg, logger, DB)
 
 	if err != nil {
 		logger.Sugar().Fatalf("Failed to initialize application: %v", err)
 	}
+
+	code := m.Run()
+
+	DB.Close()
+	os.Exit(code)
 }
 
 type testCase struct {

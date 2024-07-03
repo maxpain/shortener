@@ -1,20 +1,25 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/maxpain/shortener/internal/db"
+	"github.com/maxpain/shortener/internal/log"
 	"github.com/maxpain/shortener/internal/storage"
 )
 
 type Handler struct {
 	storage *storage.Storage
+	logger  *log.Logger
+	DB      *db.Database
 }
 
-func NewHandler(storage *storage.Storage) *Handler {
-	return &Handler{storage: storage}
+func NewHandler(storage *storage.Storage, logger *log.Logger, DB *db.Database) *Handler {
+	return &Handler{storage: storage, logger: logger, DB: DB}
 }
 
 func (h *Handler) Shorten(rw http.ResponseWriter, r *http.Request) {
@@ -98,4 +103,16 @@ func (h *Handler) Redirect(rw http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) NotFound(rw http.ResponseWriter, r *http.Request) {
 	http.Error(rw, "Not found", http.StatusBadRequest)
+}
+
+func (h *Handler) Ping(rw http.ResponseWriter, r *http.Request) {
+	err := h.DB.Ping(context.Background())
+
+	if err != nil {
+		h.logger.Sugar().Errorf("Database is not available: %v", err.Error())
+		http.Error(rw, "Database is not available", http.StatusInternalServerError)
+		return
+	}
+
+	rw.WriteHeader(http.StatusOK)
 }

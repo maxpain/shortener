@@ -6,6 +6,7 @@ import (
 
 	"github.com/maxpain/shortener/config"
 	"github.com/maxpain/shortener/internal/app"
+	"github.com/maxpain/shortener/internal/db"
 	"github.com/maxpain/shortener/internal/log"
 )
 
@@ -19,7 +20,15 @@ func main() {
 	cfg := config.NewConfiguration()
 	cfg.ParseFlags()
 
-	app, err := app.NewApplication(cfg, logger)
+	DB, err := db.NewDatabase(cfg)
+
+	if err != nil {
+		logger.Sugar().Fatalf("Error creating database: %v", err)
+	}
+
+	defer DB.Close()
+
+	app, err := app.NewApplication(cfg, logger, DB)
 
 	if err != nil {
 		logger.Sugar().Fatalf("Error creating app: %v", err)
