@@ -3,32 +3,28 @@ package app
 import (
 	"github.com/go-chi/chi/v5"
 	"github.com/maxpain/shortener/config"
-	"github.com/maxpain/shortener/internal/db"
 	"github.com/maxpain/shortener/internal/gzip"
 	"github.com/maxpain/shortener/internal/handler"
 	"github.com/maxpain/shortener/internal/log"
-	"github.com/maxpain/shortener/internal/storage"
 )
 
 type Application struct {
-	Router *chi.Mux
+	handler *handler.Handler
+	Router  *chi.Mux
 }
 
 func NewApplication(
 	cfg *config.Configuration,
 	logger *log.Logger,
-	DB *db.Database,
 ) (*Application, error) {
-	storage, err := storage.NewStorage(cfg, logger)
-
-	if err != nil {
-		return nil, err
-	}
-
-	handler := handler.NewHandler(storage, logger, DB)
+	handler := handler.NewHandler(cfg, logger)
 	router := initRouter(handler, logger)
 
-	return &Application{Router: router}, nil
+	return &Application{handler: handler, Router: router}, nil
+}
+
+func (a *Application) Close() error {
+	return a.handler.Close()
 }
 
 func initRouter(handler *handler.Handler, logger *log.Logger) *chi.Mux {

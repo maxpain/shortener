@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,9 +10,12 @@ import (
 	"os"
 
 	"github.com/maxpain/shortener/config"
+	"github.com/maxpain/shortener/internal/db"
 	"github.com/maxpain/shortener/internal/log"
 	"github.com/maxpain/shortener/internal/utils"
 	"go.uber.org/zap"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const length = 7
@@ -19,6 +23,7 @@ const length = 7
 type Storage struct {
 	links   map[string]string
 	file    *os.File
+	DB      *db.Database
 	baseURL string
 }
 
@@ -34,7 +39,26 @@ func NewStorage(cfg *config.Configuration, logger *log.Logger) (*Storage, error)
 		baseURL: cfg.BaseURL,
 	}
 
-	if cfg.FileStoragePath != "" {
+	if cfg.DatabaseDSN != "" {
+		var err error
+		s.DB, err = db.NewDatabase(cfg)
+
+		if err != nil {
+			return nil, err
+		}
+
+		// Run migrations
+		_, err = s.DB.Exec(context.Background(), `
+			CREATE TABLE IF NOT EXISTS links (
+				hash TEXT PRIMARY KEY,
+				url TEXT
+			)
+		`)
+
+		if err != nil {
+			return nil, err
+		}
+	} else if cfg.FileStoragePath != "" {
 		file, err := os.OpenFile(cfg.FileStoragePath, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
 
 		if err != nil {
@@ -68,10 +92,32 @@ func NewStorage(cfg *config.Configuration, logger *log.Logger) (*Storage, error)
 	return s, nil
 }
 
-func (s *Storage) Save(url string) (string, error) {
+func (s *Storage) Close() error {
+	if s.file != nil {
+		return s.file.Close()
+	}
+
+	if s.DB != nil {
+		s.DB.Close()
+	}
+
+	return nil
+}
+
+func (s *Storage) Save(ctx context.Context, url string) (string, error) {
 	hash := generateHash(url)
 
-	if _, ok := s.links[hash]; !ok && s.file != nil {
+	if s.DB != nil {
+		_, err := s.DB.Exec(ctx, `
+			INSERT INTO links (hash, url)
+			VALUES ($1, $2)
+			ON CONFLICT (hash) DO NOTHING
+		`, hash, url)
+
+		if err != nil {
+			return "", err
+		}
+	} else if _, ok := s.links[hash]; !ok && s.file != nil {
 		link := linkData{
 			URL:  url,
 			Hash: hash,
@@ -88,9 +134,10 @@ func (s *Storage) Save(url string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+
+		s.links[hash] = url
 	}
 
-	s.links[hash] = url
 	fullURL, err := utils.СonstructURL(s.baseURL, hash)
 
 	if err != nil {
@@ -100,10 +147,25 @@ func (s *Storage) Save(url string) (string, error) {
 	return fullURL, nil
 }
 
-func (s *Storage) GetURL(hash string) (string, bool) {
-	url, found := s.links[hash]
+func (s *Storage) GetURL(ctx context.Context, hash string) (string, error) {
+	if s.DB == nil {
+		url := s.links[hash]
 
-	return url, found
+		return url, nil
+	} else {
+		var url string
+		err := s.DB.QueryRow(ctx, "SELECT url FROM links WHERE hash = $1", hash).Scan(&url)
+
+		if err != nil {
+			if err == pgx.ErrNoRows {
+				return "", nil
+			}
+
+			return "", err
+		}
+
+		return url, nil
+	}
 }
 
 func generateHash(url string) string {

@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/maxpain/shortener/config"
-	"github.com/maxpain/shortener/internal/db"
 	"github.com/maxpain/shortener/internal/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,7 +21,6 @@ var (
 	application *Application
 	logger      *log.Logger
 	cfg         *config.Configuration
-	DB          *db.Database
 )
 
 func TestMain(m *testing.M) {
@@ -34,13 +32,8 @@ func TestMain(m *testing.M) {
 	}
 
 	cfg = config.NewConfiguration()
-	DB, err = db.NewDatabase(cfg)
 
-	if err != nil {
-		logger.Sugar().Fatalf("Error creating database: %v", err)
-	}
-
-	application, err = NewApplication(cfg, logger, DB)
+	application, err = NewApplication(cfg, logger)
 
 	if err != nil {
 		logger.Sugar().Fatalf("Failed to initialize application: %v", err)
@@ -48,7 +41,7 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	DB.Close()
+	application.Close()
 	os.Exit(code)
 }
 

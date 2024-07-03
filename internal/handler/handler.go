@@ -1,13 +1,12 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/maxpain/shortener/internal/db"
+	"github.com/maxpain/shortener/config"
 	"github.com/maxpain/shortener/internal/log"
 	"github.com/maxpain/shortener/internal/storage"
 )
@@ -15,11 +14,20 @@ import (
 type Handler struct {
 	storage *storage.Storage
 	logger  *log.Logger
-	DB      *db.Database
 }
 
-func NewHandler(storage *storage.Storage, logger *log.Logger, DB *db.Database) *Handler {
-	return &Handler{storage: storage, logger: logger, DB: DB}
+func NewHandler(cfg *config.Configuration, logger *log.Logger) *Handler {
+	storage, err := storage.NewStorage(cfg, logger)
+
+	if err != nil {
+		logger.Sugar().Fatalf("Error creating storage: %v", err)
+	}
+
+	return &Handler{storage: storage, logger: logger}
+}
+
+func (h *Handler) Close() error {
+	return h.storage.Close()
 }
 
 func (h *Handler) Shorten(rw http.ResponseWriter, r *http.Request) {
@@ -39,7 +47,7 @@ func (h *Handler) Shorten(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL, err := h.storage.Save(url)
+	shortURL, err := h.storage.Save(r.Context(), url)
 
 	if err != nil {
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
@@ -68,7 +76,7 @@ func (h *Handler) ShortenJSON(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL, err := h.storage.Save(request.URL)
+	shortURL, err := h.storage.Save(r.Context(), request.URL)
 
 	if err != nil {
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
@@ -92,10 +100,16 @@ func (h *Handler) ShortenJSON(rw http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Redirect(rw http.ResponseWriter, r *http.Request) {
 	hash := chi.URLParam(r, "hash")
-	link, ok := h.storage.GetURL(hash)
+	link, err := h.storage.GetURL(r.Context(), hash)
 
-	if !ok {
+	if err != nil {
+		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	if link == "" {
 		http.Error(rw, "Link not found", http.StatusBadRequest)
+		return
 	}
 
 	http.Redirect(rw, r, link, http.StatusTemporaryRedirect)
@@ -106,7 +120,12 @@ func (h *Handler) NotFound(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Ping(rw http.ResponseWriter, r *http.Request) {
-	err := h.DB.Ping(context.Background())
+	if h.storage.DB == nil {
+		http.Error(rw, "Database is not configured", http.StatusInternalServerError)
+		return
+	}
+
+	err := h.storage.DB.Ping(r.Context())
 
 	if err != nil {
 		h.logger.Sugar().Errorf("Database is not available: %v", err.Error())
