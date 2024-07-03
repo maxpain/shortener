@@ -232,7 +232,7 @@ func (s *Storage) GetURL(ctx context.Context, hash string) (string, error) {
 		err := s.DB.QueryRow(ctx, "SELECT original_url FROM links WHERE hash = $1", hash).Scan(&url)
 
 		if err != nil {
-			if err == pgx.ErrNoRows {
+			if errors.Is(err, pgx.ErrNoRows) {
 				return "", nil
 			}
 
