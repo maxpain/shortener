@@ -58,7 +58,13 @@ func (h *Handler) Shorten(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	rw.Header().Set("Content-Type", "text/plain")
-	rw.WriteHeader(http.StatusCreated)
+
+	if shortenedLinks[0].AlreadyExists {
+		rw.WriteHeader(http.StatusConflict)
+	} else {
+		rw.WriteHeader(http.StatusCreated)
+	}
+
 	rw.Write([]byte(shortenedLinks[0].ShortURL))
 }
 
@@ -86,6 +92,7 @@ func (h *Handler) ShortenJSON(rw http.ResponseWriter, r *http.Request) {
 
 	if err != nil || len(shortenedLinks) == 0 {
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	response := struct {
@@ -95,7 +102,13 @@ func (h *Handler) ShortenJSON(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(http.StatusCreated)
+
+	if shortenedLinks[0].AlreadyExists {
+		rw.WriteHeader(http.StatusConflict)
+	} else {
+		rw.WriteHeader(http.StatusCreated)
+	}
+
 	err = json.NewEncoder(rw).Encode(response)
 
 	if err != nil {
@@ -129,6 +142,7 @@ func (h *Handler) ShortenBatchJSON(rw http.ResponseWriter, r *http.Request) {
 
 	if err != nil || len(shortenedLinks) == 0 {
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	type ResultLink struct {

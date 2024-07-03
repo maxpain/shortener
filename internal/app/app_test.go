@@ -32,6 +32,7 @@ func TestMain(m *testing.M) {
 	}
 
 	cfg = config.NewConfiguration()
+	cfg.FileStoragePath = ""
 
 	application, err = NewApplication(cfg, logger)
 
@@ -85,18 +86,25 @@ func TestRouter(t *testing.T) {
 			body:   "https://google.com/",
 		},
 		{
+			name:   "Shorten handler should return 409 if an url already exists",
+			method: http.MethodPost,
+			code:   409,
+			path:   "/",
+			body:   "https://google.com/",
+		},
+		{
 			name:   "Shorten JSON handler should shorten an url without any errors",
 			method: http.MethodPost,
 			code:   201,
 			path:   "/api/shorten",
-			body:   "{\"url\":\"https://google.com/\"}",
+			body:   "{\"url\":\"https://yandex.ru/\"}",
 		},
 		{
 			name:   "Shorten JSON handler should shorten a links array without any errors",
 			method: http.MethodPost,
 			code:   201,
 			path:   "/api/shorten/batch",
-			body:   "[{\"original_url\":\"https://google.com/\", \"correlation_id\":\"test\"}]",
+			body:   "[{\"original_url\":\"https://google.ru/\", \"correlation_id\":\"test\"}]",
 		},
 		{
 			name:   "Redirect handler should return an error if an url doesn't exists",
@@ -120,7 +128,7 @@ func TestRouter(t *testing.T) {
 func TestShortener(t *testing.T) {
 	ts := httptest.NewServer(application.Router)
 
-	originalURL := "https://google.com/"
+	originalURL := "https://vk.com/"
 	response, shortenedURL := testRequest(t, ts, http.MethodPost, "/", strings.NewReader(originalURL))
 	defer response.Body.Close()
 
@@ -141,7 +149,7 @@ func TestShortenerJSON(t *testing.T) {
 	request := struct {
 		URL string `json:"url"`
 	}{
-		URL: "https://google.com/",
+		URL: "https://vk.ru/",
 	}
 
 	requestJSON, err := json.Marshal(request)
@@ -177,7 +185,7 @@ func TestShortenerBatchJSON(t *testing.T) {
 		OriginalURL   string `json:"original_url"`
 		CorrelationID string `json:"correlation_id"`
 	}{{
-		OriginalURL:   "https://google.com/",
+		OriginalURL:   "https://apple.com/",
 		CorrelationID: "test",
 	}}
 

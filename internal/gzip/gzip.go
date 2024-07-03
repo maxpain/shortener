@@ -30,7 +30,7 @@ func (c *compressWriter) Header() http.Header {
 }
 
 func (c *compressWriter) WriteHeader(statusCode int) {
-	if statusCode < http.StatusMultipleChoices && shouldCompress(c.rw) {
+	if statusCode < http.StatusInternalServerError && shouldCompress(c.rw) {
 		c.rw.Header().Set("Content-Encoding", "gzip")
 	}
 

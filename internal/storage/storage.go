@@ -121,6 +121,7 @@ type LinkInput struct {
 type LinkOutput struct {
 	ShortURL      string
 	CorrelationID string
+	AlreadyExists bool
 }
 
 func (s *Storage) Save(
@@ -158,7 +159,7 @@ func (s *Storage) Save(
 		hash := generateHash(link.OriginalURL)
 
 		if s.DB != nil {
-			_, err := tx.Exec(ctx, `
+			ct, err := tx.Exec(ctx, `
 				INSERT INTO links (hash, original_url, correlation_id)
 				VALUES ($1, $2, $3)
 				ON CONFLICT (hash) DO NOTHING
@@ -173,28 +174,38 @@ func (s *Storage) Save(
 
 				return nil, err
 			}
-		} else if _, ok := s.links[hash]; !ok {
-			linkToSave := Link{
-				OriginalURL:   link.OriginalURL,
-				Hash:          hash,
-				CorrelationID: link.CorrelationID,
+
+			if ct.RowsAffected() == 0 {
+				shortenedLink.AlreadyExists = true
 			}
+		} else {
+			_, ok := s.links[hash]
 
-			if s.file != nil {
-				jsonString, err := json.Marshal(linkToSave)
-
-				if err != nil {
-					return nil, err
+			if ok {
+				shortenedLink.AlreadyExists = true
+			} else {
+				linkToSave := Link{
+					OriginalURL:   link.OriginalURL,
+					Hash:          hash,
+					CorrelationID: link.CorrelationID,
 				}
 
-				_, err = s.file.WriteString(string(jsonString) + "\n")
+				if s.file != nil {
+					jsonString, err := json.Marshal(linkToSave)
 
-				if err != nil {
-					return nil, err
+					if err != nil {
+						return nil, err
+					}
+
+					_, err = s.file.WriteString(string(jsonString) + "\n")
+
+					if err != nil {
+						return nil, err
+					}
 				}
-			}
 
-			s.links[hash] = linkToSave
+				s.links[hash] = linkToSave
+			}
 		}
 
 		var err error
