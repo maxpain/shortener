@@ -16,14 +16,14 @@ type Handler struct {
 	logger  *log.Logger
 }
 
-func NewHandler(cfg *config.Configuration, logger *log.Logger) *Handler {
+func NewHandler(cfg *config.Configuration, logger *log.Logger) (*Handler, error) {
 	storage, err := storage.NewStorage(cfg, logger)
 
 	if err != nil {
-		logger.Sugar().Fatalf("Error creating storage: %v", err)
+		return nil, err
 	}
 
-	return &Handler{storage: storage, logger: logger}
+	return &Handler{storage: storage, logger: logger}, nil
 }
 
 func (h *Handler) Close() error {
@@ -47,16 +47,19 @@ func (h *Handler) Shorten(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL, err := h.storage.Save(r.Context(), url)
+	shortenedLinks, err := h.storage.Save(r.Context(), []storage.LinkInput{{
+		OriginalURL:   url,
+		CorrelationID: "",
+	}})
 
-	if err != nil {
+	if err != nil || len(shortenedLinks) == 0 {
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
 	rw.Header().Set("Content-Type", "text/plain")
 	rw.WriteHeader(http.StatusCreated)
-	rw.Write([]byte(shortURL))
+	rw.Write([]byte(shortenedLinks[0].ShortURL))
 }
 
 func (h *Handler) ShortenJSON(rw http.ResponseWriter, r *http.Request) {
@@ -76,16 +79,70 @@ func (h *Handler) ShortenJSON(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL, err := h.storage.Save(r.Context(), request.URL)
+	shortenedLinks, err := h.storage.Save(r.Context(), []storage.LinkInput{{
+		OriginalURL:   request.URL,
+		CorrelationID: "",
+	}})
 
-	if err != nil {
+	if err != nil || len(shortenedLinks) == 0 {
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
 	}
 
 	response := struct {
 		Result string `json:"result"`
 	}{
-		Result: shortURL,
+		Result: shortenedLinks[0].ShortURL,
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusCreated)
+	err = json.NewEncoder(rw).Encode(response)
+
+	if err != nil {
+		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) ShortenBatchJSON(rw http.ResponseWriter, r *http.Request) {
+	var request []struct {
+		URL           string `json:"original_url"`
+		CorrelationID string `json:"correlation_id"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&request)
+
+	if err != nil {
+		http.Error(rw, "Error reading body", http.StatusBadRequest)
+		return
+	}
+
+	var linkInputs []storage.LinkInput
+	for _, r := range request {
+		linkInputs = append(linkInputs, storage.LinkInput{
+			OriginalURL:   r.URL,
+			CorrelationID: r.CorrelationID,
+		})
+	}
+
+	shortenedLinks, err := h.storage.Save(r.Context(), linkInputs)
+
+	if err != nil || len(shortenedLinks) == 0 {
+		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
+	}
+
+	type ResultLink struct {
+		ShortURL      string `json:"short_url"`
+		CorrelationID string `json:"correlation_id"`
+	}
+
+	var response []ResultLink
+
+	for _, l := range shortenedLinks {
+		response = append(response, ResultLink{
+			ShortURL:      l.ShortURL,
+			CorrelationID: l.CorrelationID,
+		})
 	}
 
 	rw.Header().Set("Content-Type", "application/json")

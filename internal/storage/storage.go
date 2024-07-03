@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"sync"
 
 	"github.com/maxpain/shortener/config"
 	"github.com/maxpain/shortener/internal/db"
@@ -20,21 +21,27 @@ import (
 
 const length = 7
 
+type LinkMap map[string]Link
+
 type Storage struct {
-	links   map[string]string
+	logger  *log.Logger
+	links   LinkMap
 	file    *os.File
 	DB      *db.Database
 	baseURL string
+	mu      sync.Mutex
 }
 
-type linkData struct {
-	Hash string `json:"hash"`
-	URL  string `json:"url"`
+type Link struct {
+	Hash          string `json:"hash"`
+	OriginalURL   string `json:"original_url"`
+	CorrelationID string `json:"correlation_id"`
 }
 
 func NewStorage(cfg *config.Configuration, logger *log.Logger) (*Storage, error) {
 	s := &Storage{
-		links:   make(map[string]string),
+		logger:  logger,
+		links:   make(LinkMap),
 		file:    nil,
 		baseURL: cfg.BaseURL,
 	}
@@ -47,12 +54,14 @@ func NewStorage(cfg *config.Configuration, logger *log.Logger) (*Storage, error)
 			return nil, err
 		}
 
-		// Run migrations
 		_, err = s.DB.Exec(context.Background(), `
 			CREATE TABLE IF NOT EXISTS links (
 				hash TEXT PRIMARY KEY,
-				url TEXT
-			)
+				original_url TEXT NOT NULL,
+				correlation_id TEXT
+			);
+
+			CREATE INDEX IF NOT EXISTS correlation_id_idx ON links (correlation_id);
 		`)
 
 		if err != nil {
@@ -72,8 +81,7 @@ func NewStorage(cfg *config.Configuration, logger *log.Logger) (*Storage, error)
 		for scanner.Scan() {
 			line := scanner.Text()
 
-			var link linkData
-
+			var link Link
 			err := json.Unmarshal([]byte(line), &link)
 
 			if err != nil {
@@ -82,10 +90,11 @@ func NewStorage(cfg *config.Configuration, logger *log.Logger) (*Storage, error)
 
 			logger.Debug("Loaded link",
 				zap.String("hash", link.Hash),
-				zap.String("url", link.URL),
+				zap.String("original_url", link.OriginalURL),
+				zap.String("correlation_id", link.CorrelationID),
 			)
 
-			s.links[link.Hash] = link.URL
+			s.links[link.Hash] = link
 		}
 	}
 
@@ -104,57 +113,123 @@ func (s *Storage) Close() error {
 	return nil
 }
 
-func (s *Storage) Save(ctx context.Context, url string) (string, error) {
-	hash := generateHash(url)
+type LinkInput struct {
+	OriginalURL   string
+	CorrelationID string
+}
+
+type LinkOutput struct {
+	ShortURL      string
+	CorrelationID string
+}
+
+func (s *Storage) Save(
+	ctx context.Context,
+	links []LinkInput,
+) ([]LinkOutput, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	shortenedLinks := make([]LinkOutput, 0, len(links))
+
+	var tx pgx.Tx
 
 	if s.DB != nil {
-		_, err := s.DB.Exec(ctx, `
-			INSERT INTO links (hash, url)
-			VALUES ($1, $2)
-			ON CONFLICT (hash) DO NOTHING
-		`, hash, url)
+		var err error
+		tx, err = s.DB.Begin(ctx)
 
 		if err != nil {
-			return "", err
-		}
-	} else if _, ok := s.links[hash]; !ok && s.file != nil {
-		link := linkData{
-			URL:  url,
-			Hash: hash,
+			return nil, err
 		}
 
-		jsonString, err := json.Marshal(link)
-
-		if err != nil {
-			return "", err
-		}
-
-		_, err = s.file.WriteString(string(jsonString) + "\n")
-
-		if err != nil {
-			return "", err
-		}
-
-		s.links[hash] = url
+		defer tx.Rollback(ctx)
 	}
 
-	fullURL, err := utils.СonstructURL(s.baseURL, hash)
+	for _, link := range links {
+		s.logger.Debug("Saving link",
+			zap.String("url", link.OriginalURL),
+			zap.String("correlation_id", link.CorrelationID),
+		)
 
-	if err != nil {
-		return "", errors.New("failed to construct URL")
+		shortenedLink := LinkOutput{
+			CorrelationID: link.CorrelationID,
+		}
+
+		hash := generateHash(link.OriginalURL)
+
+		if s.DB != nil {
+			_, err := tx.Exec(ctx, `
+				INSERT INTO links (hash, original_url, correlation_id)
+				VALUES ($1, $2, $3)
+				ON CONFLICT (hash) DO NOTHING
+			`, hash, link.OriginalURL, link.CorrelationID)
+
+			if err != nil {
+				s.logger.Error("Failed to insert link to database",
+					zap.Error(err),
+					zap.String("url", link.OriginalURL),
+					zap.String("correlation_id", link.CorrelationID),
+				)
+
+				return nil, err
+			}
+		} else if _, ok := s.links[hash]; !ok {
+			linkToSave := Link{
+				OriginalURL:   link.OriginalURL,
+				Hash:          hash,
+				CorrelationID: link.CorrelationID,
+			}
+
+			if s.file != nil {
+				jsonString, err := json.Marshal(linkToSave)
+
+				if err != nil {
+					return nil, err
+				}
+
+				_, err = s.file.WriteString(string(jsonString) + "\n")
+
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			s.links[hash] = linkToSave
+		}
+
+		var err error
+		shortenedLink.ShortURL, err = utils.СonstructURL(s.baseURL, hash)
+
+		if err != nil {
+			return nil, errors.New("failed to construct URL")
+		}
+
+		shortenedLinks = append(shortenedLinks, shortenedLink)
 	}
 
-	return fullURL, nil
+	if s.DB != nil {
+		err := tx.Commit(ctx)
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return shortenedLinks, nil
 }
 
 func (s *Storage) GetURL(ctx context.Context, hash string) (string, error) {
 	if s.DB == nil {
-		url := s.links[hash]
+		link, ok := s.links[hash]
 
-		return url, nil
+		if !ok {
+			return "", nil
+		}
+
+		return link.OriginalURL, nil
 	} else {
 		var url string
-		err := s.DB.QueryRow(ctx, "SELECT url FROM links WHERE hash = $1", hash).Scan(&url)
+		err := s.DB.QueryRow(ctx, "SELECT original_url FROM links WHERE hash = $1", hash).Scan(&url)
 
 		if err != nil {
 			if err == pgx.ErrNoRows {

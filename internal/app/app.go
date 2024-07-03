@@ -17,7 +17,12 @@ func NewApplication(
 	cfg *config.Configuration,
 	logger *log.Logger,
 ) (*Application, error) {
-	handler := handler.NewHandler(cfg, logger)
+	handler, err := handler.NewHandler(cfg, logger)
+
+	if err != nil {
+		return nil, err
+	}
+
 	router := initRouter(handler, logger)
 
 	return &Application{handler: handler, Router: router}, nil
@@ -37,6 +42,8 @@ func initRouter(handler *handler.Handler, logger *log.Logger) *chi.Mux {
 	r.Get("/{hash}", handler.Redirect)
 	r.Post("/", handler.Shorten)
 	r.Post("/api/shorten", handler.ShortenJSON)
+	r.Post("/api/shorten/batch", handler.ShortenBatchJSON)
+
 	r.NotFound(handler.NotFound)
 	r.MethodNotAllowed(handler.NotFound)
 
