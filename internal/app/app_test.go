@@ -4,15 +4,47 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	stdlog "log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/maxpain/shortener/config"
+	"github.com/maxpain/shortener/internal/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var (
+	application *Application
+	logger      *log.Logger
+	cfg         *config.Configuration
+)
+
+func TestMain(m *testing.M) {
+	var err error
+	logger, err = log.NewLogger()
+
+	if err != nil {
+		stdlog.Fatalf("Failed to initialize logger: %v", err)
+	}
+
+	cfg = config.NewConfiguration()
+	cfg.FileStoragePath = ""
+
+	application, err = NewApplication(cfg, logger)
+
+	if err != nil {
+		logger.Sugar().Fatalf("Failed to initialize application: %v", err)
+	}
+
+	code := m.Run()
+
+	application.Close()
+	os.Exit(code)
+}
 
 type testCase struct {
 	name   string
@@ -43,10 +75,7 @@ func testRequest(t *testing.T, ts *httptest.Server, method string, path string, 
 }
 
 func TestRouter(t *testing.T) {
-	app, err := NewApp("")
-	require.NoError(t, err)
-
-	ts := httptest.NewServer(app.Router)
+	ts := httptest.NewServer(application.Router)
 
 	testCases := []testCase{
 		{
@@ -57,11 +86,25 @@ func TestRouter(t *testing.T) {
 			body:   "https://google.com/",
 		},
 		{
+			name:   "Shorten handler should return 409 if an url already exists",
+			method: http.MethodPost,
+			code:   409,
+			path:   "/",
+			body:   "https://google.com/",
+		},
+		{
 			name:   "Shorten JSON handler should shorten an url without any errors",
 			method: http.MethodPost,
 			code:   201,
 			path:   "/api/shorten",
-			body:   "{\"url\":\"https://google.com/\"}",
+			body:   "{\"url\":\"https://yandex.ru/\"}",
+		},
+		{
+			name:   "Shorten JSON handler should shorten a links array without any errors",
+			method: http.MethodPost,
+			code:   201,
+			path:   "/api/shorten/batch",
+			body:   "[{\"original_url\":\"https://google.ru/\", \"correlation_id\":\"test\"}]",
 		},
 		{
 			name:   "Redirect handler should return an error if an url doesn't exists",
@@ -83,19 +126,16 @@ func TestRouter(t *testing.T) {
 }
 
 func TestShortener(t *testing.T) {
-	app, err := NewApp("")
-	require.NoError(t, err)
+	ts := httptest.NewServer(application.Router)
 
-	ts := httptest.NewServer(app.Router)
-
-	originalURL := "https://google.com/"
+	originalURL := "https://vk.com/"
 	response, shortenedURL := testRequest(t, ts, http.MethodPost, "/", strings.NewReader(originalURL))
 	defer response.Body.Close()
 
 	assert.NotEmpty(t, shortenedURL)
 	assert.Equal(t, http.StatusCreated, response.StatusCode)
 
-	hashPath := strings.Replace(string(shortenedURL), *config.BaseURL, "", 1)
+	hashPath := strings.Replace(string(shortenedURL), cfg.BaseURL, "", 1)
 	response2, _ := testRequest(t, ts, http.MethodGet, hashPath, nil)
 	defer response2.Body.Close()
 
@@ -104,14 +144,12 @@ func TestShortener(t *testing.T) {
 }
 
 func TestShortenerJSON(t *testing.T) {
-	app, err := NewApp("")
-	require.NoError(t, err)
-	ts := httptest.NewServer(app.Router)
+	ts := httptest.NewServer(application.Router)
 
 	request := struct {
 		URL string `json:"url"`
 	}{
-		URL: "https://google.com/",
+		URL: "https://vk.ru/",
 	}
 
 	requestJSON, err := json.Marshal(request)
@@ -132,10 +170,50 @@ func TestShortenerJSON(t *testing.T) {
 
 	assert.NotEmpty(t, response.Result)
 
-	hashPath := strings.Replace(response.Result, *config.BaseURL, "", 1)
+	hashPath := strings.Replace(response.Result, cfg.BaseURL, "", 1)
 	response2, _ := testRequest(t, ts, http.MethodGet, hashPath, nil)
 	defer response2.Body.Close()
 
 	assert.Equal(t, http.StatusTemporaryRedirect, response2.StatusCode)
 	assert.Equal(t, request.URL, response2.Header.Get("Location"))
+}
+
+func TestShortenerBatchJSON(t *testing.T) {
+	ts := httptest.NewServer(application.Router)
+
+	request := []struct {
+		OriginalURL   string `json:"original_url"`
+		CorrelationID string `json:"correlation_id"`
+	}{{
+		OriginalURL:   "https://apple.com/",
+		CorrelationID: "test",
+	}}
+
+	requestJSON, err := json.Marshal(request)
+	require.NoError(t, err)
+
+	r, body := testRequest(t, ts, http.MethodPost, "/api/shorten/batch", bytes.NewReader(requestJSON))
+	defer r.Body.Close()
+
+	assert.NotEmpty(t, body)
+	assert.Equal(t, http.StatusCreated, r.StatusCode)
+
+	var response []struct {
+		ShortURL      string `json:"short_url"`
+		CorrelationID string `json:"correlation_id"`
+	}
+
+	err = json.Unmarshal(body, &response)
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, response)
+	assert.NotEmpty(t, response[0].ShortURL)
+	assert.Equal(t, request[0].CorrelationID, response[0].CorrelationID)
+
+	hashPath := strings.Replace(response[0].ShortURL, cfg.BaseURL, "", 1)
+	response2, _ := testRequest(t, ts, http.MethodGet, hashPath, nil)
+	defer response2.Body.Close()
+
+	assert.Equal(t, http.StatusTemporaryRedirect, response2.StatusCode)
+	assert.Equal(t, request[0].OriginalURL, response2.Header.Get("Location"))
 }
