@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -16,8 +17,8 @@ type Handler struct {
 	logger  *log.Logger
 }
 
-func NewHandler(cfg *config.Configuration, logger *log.Logger) (*Handler, error) {
-	storage, err := storage.NewStorage(cfg, logger)
+func NewHandler(ctx context.Context, cfg *config.Configuration, logger *log.Logger) (*Handler, error) {
+	storage, err := storage.NewStorage(ctx, cfg, logger)
 
 	if err != nil {
 		return nil, err
@@ -174,6 +175,7 @@ func (h *Handler) Redirect(rw http.ResponseWriter, r *http.Request) {
 	link, err := h.storage.GetURL(r.Context(), hash)
 
 	if err != nil {
+		h.logger.Sugar().Errorf("Error getting link: %v", err.Error())
 		http.Error(rw, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}

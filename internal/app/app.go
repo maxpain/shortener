@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/maxpain/shortener/config"
 	"github.com/maxpain/shortener/internal/gzip"
@@ -14,10 +16,11 @@ type Application struct {
 }
 
 func NewApplication(
+	ctx context.Context,
 	cfg *config.Configuration,
 	logger *log.Logger,
 ) (*Application, error) {
-	handler, err := handler.NewHandler(cfg, logger)
+	handler, err := handler.NewHandler(ctx, cfg, logger)
 
 	if err != nil {
 		return nil, err

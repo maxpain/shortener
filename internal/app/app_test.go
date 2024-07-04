@@ -2,12 +2,12 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	stdlog "log"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -17,33 +17,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var (
-	application *Application
-	logger      *log.Logger
-	cfg         *config.Configuration
-)
-
-func TestMain(m *testing.M) {
-	var err error
-	logger, err = log.NewLogger()
+func Init() (*Application, *config.Configuration) {
+	logger, err := log.NewLogger()
 
 	if err != nil {
 		stdlog.Fatalf("Failed to initialize logger: %v", err)
 	}
 
-	cfg = config.NewConfiguration()
-	cfg.FileStoragePath = ""
+	cfg := config.NewConfiguration(
+		config.WithFileStoragePath(""), // Use in-memory storage
+	)
 
-	application, err = NewApplication(cfg, logger)
+	app, err := NewApplication(context.Background(), cfg, logger)
 
 	if err != nil {
 		logger.Sugar().Fatalf("Failed to initialize application: %v", err)
 	}
 
-	code := m.Run()
-
-	application.Close()
-	os.Exit(code)
+	return app, cfg
 }
 
 type testCase struct {
@@ -75,7 +66,10 @@ func testRequest(t *testing.T, ts *httptest.Server, method string, path string, 
 }
 
 func TestRouter(t *testing.T) {
-	ts := httptest.NewServer(application.Router)
+	app, _ := Init()
+	defer app.Close()
+
+	ts := httptest.NewServer(app.Router)
 
 	testCases := []testCase{
 		{
@@ -126,7 +120,10 @@ func TestRouter(t *testing.T) {
 }
 
 func TestShortener(t *testing.T) {
-	ts := httptest.NewServer(application.Router)
+	app, cfg := Init()
+	defer app.Close()
+
+	ts := httptest.NewServer(app.Router)
 
 	originalURL := "https://vk.com/"
 	response, shortenedURL := testRequest(t, ts, http.MethodPost, "/", strings.NewReader(originalURL))
@@ -144,7 +141,10 @@ func TestShortener(t *testing.T) {
 }
 
 func TestShortenerJSON(t *testing.T) {
-	ts := httptest.NewServer(application.Router)
+	app, cfg := Init()
+	defer app.Close()
+
+	ts := httptest.NewServer(app.Router)
 
 	request := struct {
 		URL string `json:"url"`
@@ -179,7 +179,10 @@ func TestShortenerJSON(t *testing.T) {
 }
 
 func TestShortenerBatchJSON(t *testing.T) {
-	ts := httptest.NewServer(application.Router)
+	app, cfg := Init()
+	defer app.Close()
+
+	ts := httptest.NewServer(app.Router)
 
 	request := []struct {
 		OriginalURL   string `json:"original_url"`

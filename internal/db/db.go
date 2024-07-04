@@ -11,8 +11,8 @@ type Database struct {
 	*pgxpool.Pool
 }
 
-func NewDatabase(cfg *config.Configuration) (*Database, error) {
-	pool, err := pgxpool.New(context.Background(), cfg.DatabaseDSN)
+func NewDatabase(ctx context.Context, cfg *config.Configuration) (*Database, error) {
+	pool, err := pgxpool.New(ctx, cfg.DatabaseDSN)
 
 	if err != nil {
 		return nil, err

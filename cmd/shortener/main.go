@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	stdlog "log"
 	"net/http"
 
@@ -18,8 +19,9 @@ func main() {
 
 	cfg := config.NewConfiguration()
 	cfg.ParseFlags()
+	cfg.LoadFromEnv()
 
-	app, err := app.NewApplication(cfg, logger)
+	app, err := app.NewApplication(context.Background(), cfg, logger)
 
 	if err != nil {
 		logger.Sugar().Fatalf("Error creating app: %v", err)

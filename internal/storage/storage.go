@@ -21,15 +21,12 @@ import (
 
 const length = 7
 
-type LinkMap map[string]Link
-
 type Storage struct {
 	logger  *log.Logger
-	links   LinkMap
+	links   sync.Map
 	file    *os.File
 	DB      *db.Database
 	baseURL string
-	mu      sync.Mutex
 }
 
 type Link struct {
@@ -38,17 +35,16 @@ type Link struct {
 	CorrelationID string `json:"correlation_id"`
 }
 
-func NewStorage(cfg *config.Configuration, logger *log.Logger) (*Storage, error) {
+func NewStorage(ctx context.Context, cfg *config.Configuration, logger *log.Logger) (*Storage, error) {
 	s := &Storage{
 		logger:  logger,
-		links:   make(LinkMap),
 		file:    nil,
 		baseURL: cfg.BaseURL,
 	}
 
 	if cfg.DatabaseDSN != "" {
 		var err error
-		s.DB, err = db.NewDatabase(cfg)
+		s.DB, err = db.NewDatabase(ctx, cfg)
 
 		if err != nil {
 			return nil, err
@@ -94,7 +90,7 @@ func NewStorage(cfg *config.Configuration, logger *log.Logger) (*Storage, error)
 				zap.String("correlation_id", link.CorrelationID),
 			)
 
-			s.links[link.Hash] = link
+			s.links.Store(link.Hash, link)
 		}
 	}
 
@@ -128,84 +124,104 @@ func (s *Storage) Save(
 	ctx context.Context,
 	links []LinkInput,
 ) ([]LinkOutput, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	shortenedLinks := make([]LinkOutput, 0, len(links))
-
-	var tx pgx.Tx
-
 	if s.DB != nil {
-		var err error
-		tx, err = s.DB.Begin(ctx)
-
-		if err != nil {
-			return nil, err
-		}
-
-		defer tx.Rollback(ctx)
+		return s.saveToDB(ctx, links)
 	}
 
-	for _, link := range links {
-		s.logger.Debug("Saving link",
-			zap.String("url", link.OriginalURL),
-			zap.String("correlation_id", link.CorrelationID),
-		)
+	return s.saveToDiskOrMemory(links)
+}
 
+func (s *Storage) saveToDB(ctx context.Context, links []LinkInput) ([]LinkOutput, error) {
+	shortenedLinks := make([]LinkOutput, 0, len(links))
+
+	tx, err := s.DB.Begin(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer tx.Rollback(ctx)
+
+	for _, link := range links {
 		shortenedLink := LinkOutput{
 			CorrelationID: link.CorrelationID,
 		}
 
 		hash := generateHash(link.OriginalURL)
 
-		if s.DB != nil {
-			ct, err := tx.Exec(ctx, `
-				INSERT INTO links (hash, original_url, correlation_id)
-				VALUES ($1, $2, $3)
-				ON CONFLICT (hash) DO NOTHING
-			`, hash, link.OriginalURL, link.CorrelationID)
+		ct, err := tx.Exec(ctx, `
+			INSERT INTO links (hash, original_url, correlation_id)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (hash) DO NOTHING
+		`, hash, link.OriginalURL, link.CorrelationID)
 
-			if err != nil {
-				s.logger.Error("Failed to insert link to database",
-					zap.Error(err),
-					zap.String("url", link.OriginalURL),
-					zap.String("correlation_id", link.CorrelationID),
-				)
+		if err != nil {
+			s.logger.Error("Failed to insert link to database",
+				zap.Error(err),
+				zap.String("url", link.OriginalURL),
+				zap.String("correlation_id", link.CorrelationID),
+			)
 
-				return nil, err
-			}
+			return nil, err
+		}
 
-			if ct.RowsAffected() == 0 {
-				shortenedLink.AlreadyExists = true
-			}
+		if ct.RowsAffected() == 0 {
+			shortenedLink.AlreadyExists = true
+		}
+
+		shortenedLink.ShortURL, err = utils.СonstructURL(s.baseURL, hash)
+
+		if err != nil {
+			return nil, errors.New("failed to construct URL")
+		}
+
+		shortenedLinks = append(shortenedLinks, shortenedLink)
+	}
+
+	err = tx.Commit(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return shortenedLinks, nil
+}
+
+func (s *Storage) saveToDiskOrMemory(links []LinkInput) ([]LinkOutput, error) {
+	shortenedLinks := make([]LinkOutput, 0, len(links))
+
+	for _, link := range links {
+		shortenedLink := LinkOutput{
+			CorrelationID: link.CorrelationID,
+		}
+
+		hash := generateHash(link.OriginalURL)
+		_, ok := s.links.Load(hash)
+
+		if ok {
+			shortenedLink.AlreadyExists = true
 		} else {
-			_, ok := s.links[hash]
-
-			if ok {
-				shortenedLink.AlreadyExists = true
-			} else {
-				linkToSave := Link{
-					OriginalURL:   link.OriginalURL,
-					Hash:          hash,
-					CorrelationID: link.CorrelationID,
-				}
-
-				if s.file != nil {
-					jsonString, err := json.Marshal(linkToSave)
-
-					if err != nil {
-						return nil, err
-					}
-
-					_, err = s.file.WriteString(string(jsonString) + "\n")
-
-					if err != nil {
-						return nil, err
-					}
-				}
-
-				s.links[hash] = linkToSave
+			linkToSave := Link{
+				OriginalURL:   link.OriginalURL,
+				Hash:          hash,
+				CorrelationID: link.CorrelationID,
 			}
+
+			if s.file != nil {
+				jsonString, err := json.Marshal(linkToSave)
+
+				if err != nil {
+					return nil, err
+				}
+
+				_, err = s.file.WriteString(string(jsonString) + "\n")
+
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			s.links.Store(hash, linkToSave)
 		}
 
 		var err error
@@ -218,24 +234,18 @@ func (s *Storage) Save(
 		shortenedLinks = append(shortenedLinks, shortenedLink)
 	}
 
-	if s.DB != nil {
-		err := tx.Commit(ctx)
-
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	return shortenedLinks, nil
 }
 
 func (s *Storage) GetURL(ctx context.Context, hash string) (string, error) {
 	if s.DB == nil {
-		link, ok := s.links[hash]
+		v, ok := s.links.Load(hash)
 
 		if !ok {
 			return "", nil
 		}
+
+		link := v.(Link)
 
 		return link.OriginalURL, nil
 	} else {

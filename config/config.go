@@ -12,12 +12,44 @@ type Configuration struct {
 	DatabaseDSN     string
 }
 
-func NewConfiguration() *Configuration {
-	return &Configuration{
+type Option func(*Configuration)
+
+func NewConfiguration(opts ...Option) *Configuration {
+	cfg := &Configuration{
 		ServerAddr:      ":8080",
 		BaseURL:         "http://localhost:8080",
 		FileStoragePath: "/tmp/short-url-db.json",
 		DatabaseDSN:     "",
+	}
+
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	return cfg
+}
+
+func WithServerAddr(addr string) Option {
+	return func(c *Configuration) {
+		c.ServerAddr = addr
+	}
+}
+
+func WithBaseURL(url string) Option {
+	return func(c *Configuration) {
+		c.BaseURL = url
+	}
+}
+
+func WithFileStoragePath(path string) Option {
+	return func(c *Configuration) {
+		c.FileStoragePath = path
+	}
+}
+
+func WithDatabaseDSN(dsn string) Option {
+	return func(c *Configuration) {
+		c.DatabaseDSN = dsn
 	}
 }
 
@@ -28,20 +60,22 @@ func (c *Configuration) ParseFlags() {
 	flag.StringVar(&c.DatabaseDSN, "d", c.DatabaseDSN, "Database DSN (optional)")
 
 	flag.Parse()
+}
 
-	if envServerAddr := os.Getenv("SERVER_ADDRESS"); envServerAddr != "" {
-		c.ServerAddr = envServerAddr
+func (c *Configuration) LoadFromEnv() {
+	if addr := os.Getenv("SERVER_ADDRESS"); addr != "" {
+		c.ServerAddr = addr
 	}
 
-	if envBaseURL := os.Getenv("BASE_URL"); envBaseURL != "" {
-		c.BaseURL = envBaseURL
+	if url := os.Getenv("BASE_URL"); url != "" {
+		c.BaseURL = url
 	}
 
-	if envFileStoragePath, ok := os.LookupEnv("FILE_STORAGE_PATH"); ok {
-		c.FileStoragePath = envFileStoragePath
+	if path, ok := os.LookupEnv("FILE_STORAGE_PATH"); ok {
+		c.FileStoragePath = path
 	}
 
-	if envDatabaseDSN, ok := os.LookupEnv("DATABASE_DSN"); ok {
-		c.DatabaseDSN = envDatabaseDSN
+	if dsn, ok := os.LookupEnv("DATABASE_DSN"); ok {
+		c.DatabaseDSN = dsn
 	}
 }
