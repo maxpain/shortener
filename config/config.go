@@ -5,17 +5,17 @@ import (
 	"os"
 )
 
-type Configuration struct {
+type Config struct {
 	ServerAddr      string
 	BaseURL         string
 	FileStoragePath string
 	DatabaseDSN     string
 }
 
-type Option func(*Configuration)
+type Option func(*Config)
 
-func NewConfiguration(opts ...Option) *Configuration {
-	cfg := &Configuration{
+func New(opts ...Option) *Config {
+	cfg := &Config{
 		ServerAddr:      ":8080",
 		BaseURL:         "http://localhost:8080",
 		FileStoragePath: "/tmp/short-url-db.json",
@@ -30,30 +30,30 @@ func NewConfiguration(opts ...Option) *Configuration {
 }
 
 func WithServerAddr(addr string) Option {
-	return func(c *Configuration) {
+	return func(c *Config) {
 		c.ServerAddr = addr
 	}
 }
 
 func WithBaseURL(url string) Option {
-	return func(c *Configuration) {
+	return func(c *Config) {
 		c.BaseURL = url
 	}
 }
 
 func WithFileStoragePath(path string) Option {
-	return func(c *Configuration) {
+	return func(c *Config) {
 		c.FileStoragePath = path
 	}
 }
 
 func WithDatabaseDSN(dsn string) Option {
-	return func(c *Configuration) {
+	return func(c *Config) {
 		c.DatabaseDSN = dsn
 	}
 }
 
-func (c *Configuration) ParseFlags() {
+func (c *Config) ParseFlags() {
 	flag.StringVar(&c.ServerAddr, "a", c.ServerAddr, "Server address")
 	flag.StringVar(&c.BaseURL, "b", c.BaseURL, "Base url for generated links")
 	flag.StringVar(&c.FileStoragePath, "f", c.FileStoragePath, "Path to file storage")
@@ -62,7 +62,7 @@ func (c *Configuration) ParseFlags() {
 	flag.Parse()
 }
 
-func (c *Configuration) LoadFromEnv() {
+func (c *Config) LoadFromEnv() {
 	if addr := os.Getenv("SERVER_ADDRESS"); addr != "" {
 		c.ServerAddr = addr
 	}

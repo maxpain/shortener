@@ -1,0 +1,14 @@
+version: "2"
+sql:
+  - engine: postgresql
+    queries: internal/repository/postgres/queries.sql
+    schema: internal/repository/postgres/schema.sql
+    strict_function_checks: true
+    gen:
+      go:
+        package: queries
+        out: internal/repository/postgres/queries
+        sql_package: "pgx/v5"
+        emit_prepared_queries: true
+        emit_pointers_for_null_types: true
+        emit_sql_as_comment: true
