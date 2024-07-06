@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"os"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,20 +30,15 @@ func New(db *pgxpool.Pool, logger *slog.Logger) *Repository {
 }
 
 func (r *Repository) Init(ctx context.Context) error {
-	schemaFile, err := os.Open("schema.sql")
-	if err != nil {
-		return fmt.Errorf("failed to open schema.sql: %w", err)
-	}
-	defer schemaFile.Close()
+	_, err := r.db.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS links (
+			hash VARCHAR(6) PRIMARY KEY,
+			original_url TEXT NOT NULL,
+			correlation_id TEXT NOT NULL
+		);
 
-	sqlBytes, err := io.ReadAll(schemaFile)
-	if err != nil {
-		return fmt.Errorf("failed to read schema.sql: %w", err)
-	}
-
-	sql := string(sqlBytes)
-
-	_, err = r.db.Exec(ctx, sql)
+		CREATE INDEX IF NOT EXISTS correlation_id_idx ON links (correlation_id);
+	`)
 	if err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
