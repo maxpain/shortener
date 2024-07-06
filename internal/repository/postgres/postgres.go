@@ -100,7 +100,11 @@ func (r *Repository) Save(ctx context.Context, linksToStore []*model.StoredLink)
 func (r *Repository) Ping(ctx context.Context) error {
 	err := r.db.Ping(ctx)
 
-	return fmt.Errorf("failed to ping db: %w", err)
+	if err != nil {
+		return fmt.Errorf("failed to ping db: %w", err)
+	}
+
+	return nil
 }
 
 func (r *Repository) Close() {
