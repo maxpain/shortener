@@ -86,7 +86,7 @@ func (r *Repository) Save(ctx context.Context, linksToStore []*model.StoredLink)
 		}
 
 		isExists := rowsAffected == 0
-		results = append(results, isExists)
+		results = append(results, !isExists)
 	}
 
 	err = tx.Commit(ctx)
@@ -99,7 +99,6 @@ func (r *Repository) Save(ctx context.Context, linksToStore []*model.StoredLink)
 
 func (r *Repository) Ping(ctx context.Context) error {
 	err := r.db.Ping(ctx)
-
 	if err != nil {
 		return fmt.Errorf("failed to ping db: %w", err)
 	}
