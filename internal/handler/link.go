@@ -34,7 +34,7 @@ func New(u LinkUseCase, logger *slog.Logger, baseURL string) *LinkHandler {
 }
 
 var (
-	errGetTokenFromContext = errors.New("failed to get token from context")
+	errUnauthorized        = errors.New("unauthorized")
 	errGetClaimsFromToken  = errors.New("failed to get claims from token")
 	errGetUserIDFromClaims = errors.New("failed to get userID from claims")
 )
@@ -42,7 +42,7 @@ var (
 func (h *LinkHandler) getUserIDFromContext(c *fiber.Ctx) (string, error) {
 	token, ok := c.Locals("user").(*jwt.Token)
 	if !ok {
-		return "", errGetTokenFromContext
+		return "", errUnauthorized
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
@@ -224,6 +224,10 @@ func (h *LinkHandler) ShortenBatchJSON(c *fiber.Ctx) error {
 func (h *LinkHandler) GetUserLinks(c *fiber.Ctx) error {
 	userID, err := h.getUserIDFromContext(c)
 	if err != nil {
+		if errors.Is(err, errUnauthorized) {
+			return c.SendStatus(fiber.StatusUnauthorized)
+		}
+
 		h.logger.Error("Failed to get user ID from context", slog.Any("error", err))
 
 		return c.SendStatus(fiber.StatusInternalServerError)
@@ -234,6 +238,10 @@ func (h *LinkHandler) GetUserLinks(c *fiber.Ctx) error {
 		h.logger.Error("Failed to get user links", slog.Any("error", err))
 
 		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
+	if len(links) == 0 {
+		return c.SendStatus(fiber.StatusNoContent)
 	}
 
 	return c.JSON(links)

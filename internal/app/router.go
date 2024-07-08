@@ -29,6 +29,10 @@ func setupRoutes(
 		},
 		TokenLookup: "cookie:auth",
 		ErrorHandler: func(c *fiber.Ctx, _ error) error {
+			if c.Method() != "POST" {
+				return c.Next()
+			}
+
 			expiresAt := time.Now().Add(time.Hour * 72)
 			token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 				"userID": uuid.New().String(),
