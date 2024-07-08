@@ -50,7 +50,10 @@ func (r *Repository) Init(_ context.Context) error {
 			return fmt.Errorf("failed to decode link: %w", err)
 		}
 
-		r.saveLinkToMemory(&link)
+		err := r.saveLinkToMemory(&link)
+		if err != nil {
+			return fmt.Errorf("failed to save link to memory: %w", err)
+		}
 	}
 
 	return nil

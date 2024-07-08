@@ -33,24 +33,30 @@ func New(u LinkUseCase, logger *slog.Logger, baseURL string) *LinkHandler {
 	}
 }
 
-func (h *LinkHandler) getUserIdFromContext(c *fiber.Ctx) (string, error) {
+var (
+	errGetTokenFromContext = errors.New("failed to get token from context")
+	errGetClaimsFromToken  = errors.New("failed to get claims from token")
+	errGetUserIDFromClaims = errors.New("failed to get userID from claims")
+)
+
+func (h *LinkHandler) getUserIDFromContext(c *fiber.Ctx) (string, error) {
 	token, ok := c.Locals("user").(*jwt.Token)
 	if !ok {
-		return "", errors.New("failed to get token from context")
+		return "", errGetTokenFromContext
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		h.logger.Debug("Failed to get claims from token")
 
-		return "", errors.New("failed to get claims from token")
+		return "", errGetClaimsFromToken
 	}
 
 	userID, ok := claims["userID"].(string)
 	if !ok {
 		h.logger.Debug("Failed to get userID from claims")
 
-		return "", errors.New("failed to get userID from claims")
+		return "", errGetUserIDFromClaims
 	}
 
 	return userID, nil
@@ -89,7 +95,7 @@ func (h *LinkHandler) Redirect(c *fiber.Ctx) error {
 }
 
 func (h *LinkHandler) ShortenSinglePlain(c *fiber.Ctx) error {
-	userID, err := h.getUserIdFromContext(c)
+	userID, err := h.getUserIDFromContext(c)
 	if err != nil {
 		h.logger.Error("Failed to get user ID from context", slog.Any("error", err))
 
@@ -130,7 +136,7 @@ func (h *LinkHandler) ShortenSinglePlain(c *fiber.Ctx) error {
 }
 
 func (h *LinkHandler) ShortenSingleJSON(c *fiber.Ctx) error {
-	userID, err := h.getUserIdFromContext(c)
+	userID, err := h.getUserIDFromContext(c)
 	if err != nil {
 		h.logger.Error("Failed to get user ID from context", slog.Any("error", err))
 
@@ -172,7 +178,7 @@ func (h *LinkHandler) ShortenSingleJSON(c *fiber.Ctx) error {
 }
 
 func (h *LinkHandler) ShortenBatchJSON(c *fiber.Ctx) error {
-	userID, err := h.getUserIdFromContext(c)
+	userID, err := h.getUserIDFromContext(c)
 	if err != nil {
 		h.logger.Error("Failed to get user ID from context", slog.Any("error", err))
 
@@ -216,7 +222,7 @@ func (h *LinkHandler) ShortenBatchJSON(c *fiber.Ctx) error {
 }
 
 func (h *LinkHandler) GetUserLinks(c *fiber.Ctx) error {
-	userID, err := h.getUserIdFromContext(c)
+	userID, err := h.getUserIDFromContext(c)
 	if err != nil {
 		h.logger.Error("Failed to get user ID from context", slog.Any("error", err))
 

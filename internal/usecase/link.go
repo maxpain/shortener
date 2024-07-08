@@ -75,7 +75,6 @@ func (u *LinkUseCase) GetUserLinks(ctx context.Context, baseURL string, userID s
 
 	for _, link := range links {
 		shortenedLink, err := link.GetShortenedLink(baseURL)
-
 		if err != nil {
 			return nil, fmt.Errorf("failed to get shortened link: %w", err)
 		}
