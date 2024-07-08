@@ -1,33 +1,33 @@
 package main
 
 import (
-	stdlog "log"
-	"net/http"
+	"context"
+	"log/slog"
+	"os"
 
 	"github.com/maxpain/shortener/config"
 	"github.com/maxpain/shortener/internal/app"
-	"github.com/maxpain/shortener/internal/log"
 )
 
 func main() {
-	logger, err := log.NewLogger()
-
-	if err != nil {
-		stdlog.Fatalf("Error creating logger: %v", err)
-	}
-
-	cfg := config.NewConfiguration()
+	cfg := config.New()
 	cfg.ParseFlags()
+	cfg.LoadFromEnv()
 
-	app, err := app.NewApplication(cfg, logger)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
 
+	app, err := app.New(context.Background(), cfg, logger)
 	if err != nil {
-		logger.Sugar().Fatalf("Error creating app: %v", err)
+		logger.Error("failed to create app", slog.Any("error", err))
+		os.Exit(1)
 	}
 
 	defer app.Close()
 
-	if err = http.ListenAndServe(cfg.ServerAddr, app.Router); err != nil {
-		logger.Sugar().Fatalf("Error starting server: %v", err)
+	err = app.Listen(cfg.ServerAddr)
+	if err != nil {
+		logger.Error("failed to start app", slog.Any("error", err))
 	}
 }

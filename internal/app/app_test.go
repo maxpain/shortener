@@ -1,219 +1,196 @@
-package app
+package app_test
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
+	"fmt"
 	"io"
-	stdlog "log"
-	"net/http"
+	"log/slog"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/maxpain/shortener/config"
-	"github.com/maxpain/shortener/internal/log"
+	"github.com/maxpain/shortener/internal/app"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-var (
-	application *Application
-	logger      *log.Logger
-	cfg         *config.Configuration
-)
+func initApp() (*app.App, error) {
+	ctx := context.Background()
+	cfg := config.New(
+		config.WithFileStoragePath(""),
+	)
 
-func TestMain(m *testing.M) {
-	var err error
-	logger, err = log.NewLogger()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
+	a, err := app.New(ctx, cfg, logger)
 	if err != nil {
-		stdlog.Fatalf("Failed to initialize logger: %v", err)
+		return nil, fmt.Errorf("failed to create app: %w", err)
 	}
 
-	cfg = config.NewConfiguration()
-	cfg.FileStoragePath = ""
-
-	application, err = NewApplication(cfg, logger)
-
-	if err != nil {
-		logger.Sugar().Fatalf("Failed to initialize application: %v", err)
-	}
-
-	code := m.Run()
-
-	application.Close()
-	os.Exit(code)
-}
-
-type testCase struct {
-	name   string
-	method string
-	code   int
-	path   string
-	body   string
-}
-
-func testRequest(t *testing.T, ts *httptest.Server, method string, path string, body io.Reader) (*http.Response, []byte) {
-	req, err := http.NewRequest(method, ts.URL+path, body)
-	require.NoError(t, err)
-
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	resp, err := client.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-
-	return resp, respBody
+	return a, nil
 }
 
 func TestRouter(t *testing.T) {
-	ts := httptest.NewServer(application.Router)
+	t.Parallel()
 
-	testCases := []testCase{
+	app, err := initApp()
+	require.NoError(t, err)
+	t.Cleanup(app.Close)
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		method        string
+		body          string
+		path          string
+		statusCode    int
+		response      string
+		isJSON        bool
+		checkResponse bool
+		location      string
+		checkLocation bool
+	}{
 		{
-			name:   "Shorten handler should shorten an url without any errors",
-			method: http.MethodPost,
-			code:   201,
-			path:   "/",
-			body:   "https://google.com/",
+			name:       "ping",
+			method:     "GET",
+			path:       "/ping",
+			statusCode: fiber.StatusOK,
 		},
 		{
-			name:   "Shorten handler should return 409 if an url already exists",
-			method: http.MethodPost,
-			code:   409,
-			path:   "/",
-			body:   "https://google.com/",
+			name:       "Non-existent redirect",
+			method:     "GET",
+			path:       "/non-existent",
+			statusCode: fiber.StatusNotFound,
 		},
 		{
-			name:   "Shorten JSON handler should shorten an url without any errors",
-			method: http.MethodPost,
-			code:   201,
-			path:   "/api/shorten",
-			body:   "{\"url\":\"https://yandex.ru/\"}",
+			name:          "Shorten single plain",
+			method:        "POST",
+			path:          "/",
+			statusCode:    fiber.StatusCreated,
+			body:          "https://google.com",
+			response:      "http://localhost:8080/05046f",
+			checkResponse: true,
 		},
 		{
-			name:   "Shorten JSON handler should shorten a links array without any errors",
-			method: http.MethodPost,
-			code:   201,
-			path:   "/api/shorten/batch",
-			body:   "[{\"original_url\":\"https://google.ru/\", \"correlation_id\":\"test\"}]",
+			name:          "Try to shorten single plain second time",
+			method:        "POST",
+			path:          "/",
+			statusCode:    fiber.StatusConflict,
+			body:          "https://google.com",
+			response:      "http://localhost:8080/05046f",
+			checkResponse: true,
 		},
 		{
-			name:   "Redirect handler should return an error if an url doesn't exists",
-			method: http.MethodGet,
-			code:   400,
-			path:   "/dsadqwdqd",
-			body:   "",
+			name:          "Shorten single JSON",
+			method:        "POST",
+			path:          "/api/shorten",
+			statusCode:    fiber.StatusCreated,
+			body:          `{"url":"https://yandex.ru"}`,
+			response:      `{"result":"http://localhost:8080/160009"}`,
+			checkResponse: true,
+			isJSON:        true,
+		},
+		{
+			name:       "Shorten batch JSON",
+			method:     "POST",
+			path:       "/api/shorten/batch",
+			statusCode: fiber.StatusCreated,
+			body: `[{
+				"original_url": "https://x.com/",
+				"correlation_id": "x"
+			}, {
+				"original_url": "https://t.me/",
+				"correlation_id": "t"
+			}]`,
+			response: `[{
+				"short_url": "http://localhost:8080/326a64",
+				"correlation_id": "x"
+			}, {
+				"short_url": "http://localhost:8080/e70e7a",
+				"correlation_id": "t"
+			}]`,
+			checkResponse: true,
+			isJSON:        true,
+		},
+		{
+			name:          "Redirect",
+			method:        "GET",
+			path:          "/160009",
+			statusCode:    fiber.StatusTemporaryRedirect,
+			location:      "https://yandex.ru",
+			checkLocation: true,
+		},
+		{
+			name:       "Get previously saved links",
+			method:     "GET",
+			path:       "/api/user/urls",
+			statusCode: fiber.StatusOK,
+			response: `[{
+				"original_url": "https://google.com",
+				"short_url": "http://localhost:8080/05046f"
+			}, {
+				"original_url": "https://yandex.ru",
+				"short_url": "http://localhost:8080/160009"
+			}, {
+				"original_url": "https://x.com/",
+				"short_url": "http://localhost:8080/326a64"
+			}, {
+				"original_url": "https://t.me/",
+				"short_url": "http://localhost:8080/e70e7a"
+			}]`,
+			checkResponse: true,
+			isJSON:        true,
 		},
 	}
 
-	for _, test := range testCases {
-		t.Run(test.name, func(t *testing.T) {
-			res, _ := testRequest(t, ts, test.method, test.path, strings.NewReader(test.body))
-			defer res.Body.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert := assert.New(t)
+			require := require.New(t)
 
-			assert.Equal(t, test.code, res.StatusCode)
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			u := &url.URL{Scheme: "http", Host: req.Host, Path: req.URL.Path}
+
+			for _, cookie := range jar.Cookies(u) {
+				req.AddCookie(cookie)
+			}
+
+			if tt.isJSON {
+				req.Header.Set("Content-Type", "application/json")
+			}
+
+			resp, err := app.Test(req)
+
+			require.NoError(err)
+			assert.Equal(tt.statusCode, resp.StatusCode, "status code")
+
+			// Store received cookies in the jar
+			jar.SetCookies(u, resp.Cookies())
+
+			if tt.checkResponse {
+				body, err := io.ReadAll(resp.Body)
+				require.NoError(err)
+
+				if tt.isJSON {
+					assert.JSONEq(tt.response, string(body), "response json")
+				} else {
+					assert.Equal(tt.response, string(body), "response body")
+				}
+			}
+
+			if tt.checkLocation {
+				location := resp.Header.Get("Location")
+				assert.Equal(tt.location, location, "Location header")
+			}
+
+			resp.Body.Close()
 		})
 	}
-}
-
-func TestShortener(t *testing.T) {
-	ts := httptest.NewServer(application.Router)
-
-	originalURL := "https://vk.com/"
-	response, shortenedURL := testRequest(t, ts, http.MethodPost, "/", strings.NewReader(originalURL))
-	defer response.Body.Close()
-
-	assert.NotEmpty(t, shortenedURL)
-	assert.Equal(t, http.StatusCreated, response.StatusCode)
-
-	hashPath := strings.Replace(string(shortenedURL), cfg.BaseURL, "", 1)
-	response2, _ := testRequest(t, ts, http.MethodGet, hashPath, nil)
-	defer response2.Body.Close()
-
-	assert.Equal(t, http.StatusTemporaryRedirect, response2.StatusCode)
-	assert.Equal(t, originalURL, response2.Header.Get("Location"))
-}
-
-func TestShortenerJSON(t *testing.T) {
-	ts := httptest.NewServer(application.Router)
-
-	request := struct {
-		URL string `json:"url"`
-	}{
-		URL: "https://vk.ru/",
-	}
-
-	requestJSON, err := json.Marshal(request)
-	require.NoError(t, err)
-
-	r, body := testRequest(t, ts, http.MethodPost, "/api/shorten", bytes.NewReader(requestJSON))
-	defer r.Body.Close()
-
-	assert.NotEmpty(t, body)
-	assert.Equal(t, http.StatusCreated, r.StatusCode)
-
-	var response struct {
-		Result string `json:"result"`
-	}
-
-	err = json.Unmarshal(body, &response)
-	require.NoError(t, err)
-
-	assert.NotEmpty(t, response.Result)
-
-	hashPath := strings.Replace(response.Result, cfg.BaseURL, "", 1)
-	response2, _ := testRequest(t, ts, http.MethodGet, hashPath, nil)
-	defer response2.Body.Close()
-
-	assert.Equal(t, http.StatusTemporaryRedirect, response2.StatusCode)
-	assert.Equal(t, request.URL, response2.Header.Get("Location"))
-}
-
-func TestShortenerBatchJSON(t *testing.T) {
-	ts := httptest.NewServer(application.Router)
-
-	request := []struct {
-		OriginalURL   string `json:"original_url"`
-		CorrelationID string `json:"correlation_id"`
-	}{{
-		OriginalURL:   "https://apple.com/",
-		CorrelationID: "test",
-	}}
-
-	requestJSON, err := json.Marshal(request)
-	require.NoError(t, err)
-
-	r, body := testRequest(t, ts, http.MethodPost, "/api/shorten/batch", bytes.NewReader(requestJSON))
-	defer r.Body.Close()
-
-	assert.NotEmpty(t, body)
-	assert.Equal(t, http.StatusCreated, r.StatusCode)
-
-	var response []struct {
-		ShortURL      string `json:"short_url"`
-		CorrelationID string `json:"correlation_id"`
-	}
-
-	err = json.Unmarshal(body, &response)
-	require.NoError(t, err)
-
-	assert.NotEmpty(t, response)
-	assert.NotEmpty(t, response[0].ShortURL)
-	assert.Equal(t, request[0].CorrelationID, response[0].CorrelationID)
-
-	hashPath := strings.Replace(response[0].ShortURL, cfg.BaseURL, "", 1)
-	response2, _ := testRequest(t, ts, http.MethodGet, hashPath, nil)
-	defer response2.Body.Close()
-
-	assert.Equal(t, http.StatusTemporaryRedirect, response2.StatusCode)
-	assert.Equal(t, request[0].OriginalURL, response2.Header.Get("Location"))
 }
