@@ -34,10 +34,12 @@ func (r *Repository) Init(ctx context.Context) error {
 		CREATE TABLE IF NOT EXISTS links (
 			hash VARCHAR(6) PRIMARY KEY,
 			original_url TEXT NOT NULL,
-			correlation_id TEXT NOT NULL
+			correlation_id TEXT NOT NULL,
+			user_id TEXT NOT NULL
 		);
 
 		CREATE INDEX IF NOT EXISTS correlation_id_idx ON links (correlation_id);
+		CREATE INDEX IF NOT EXISTS user_id_idx ON links (user_id);
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
@@ -46,7 +48,7 @@ func (r *Repository) Init(ctx context.Context) error {
 	return nil
 }
 
-func (r *Repository) Get(ctx context.Context, hash string) (*model.StoredLink, error) {
+func (r *Repository) GetLink(ctx context.Context, hash string) (*model.StoredLink, error) {
 	row, err := r.queries.SelectLink(ctx, hash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -57,7 +59,8 @@ func (r *Repository) Get(ctx context.Context, hash string) (*model.StoredLink, e
 	}
 
 	return &model.StoredLink{
-		Hash: hash,
+		Hash:   row.Hash,
+		UserID: row.UserID,
 		Link: &model.Link{
 			OriginalURL:   row.OriginalUrl,
 			CorrelationID: row.CorrelationID,
@@ -65,7 +68,29 @@ func (r *Repository) Get(ctx context.Context, hash string) (*model.StoredLink, e
 	}, nil
 }
 
-func (r *Repository) Save(ctx context.Context, linksToStore []*model.StoredLink) ([]bool, error) {
+func (r *Repository) GetUserLinks(ctx context.Context, userID string) ([]*model.StoredLink, error) {
+	rows, err := r.queries.SelectUserLinks(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to select link: %w", err)
+	}
+
+	links := make([]*model.StoredLink, 0, len(rows))
+
+	for _, row := range rows {
+		links = append(links, &model.StoredLink{
+			Hash:   row.Hash,
+			UserID: row.UserID,
+			Link: &model.Link{
+				OriginalURL:   row.OriginalUrl,
+				CorrelationID: row.CorrelationID,
+			},
+		})
+	}
+
+	return links, nil
+}
+
+func (r *Repository) SaveLinks(ctx context.Context, linksToStore []*model.StoredLink) ([]bool, error) {
 	results := make([]bool, 0, len(linksToStore))
 
 	tx, err := r.db.Begin(ctx)
@@ -80,6 +105,7 @@ func (r *Repository) Save(ctx context.Context, linksToStore []*model.StoredLink)
 			Hash:          link.Hash,
 			OriginalUrl:   link.OriginalURL,
 			CorrelationID: link.CorrelationID,
+			UserID:        link.UserID,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to insert link: %w", err)

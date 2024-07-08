@@ -14,7 +14,9 @@ func main() {
 	cfg.ParseFlags()
 	cfg.LoadFromEnv()
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
 
 	app, err := app.New(context.Background(), cfg, logger)
 	if err != nil {

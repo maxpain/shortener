@@ -7,8 +7,10 @@ import (
 )
 
 type Repository interface {
-	Get(ctx context.Context, hash string) (*model.StoredLink, error)
-	Save(ctx context.Context, links []*model.StoredLink) ([]bool, error)
+	GetLink(ctx context.Context, hash string) (*model.StoredLink, error)
+	GetUserLinks(ctx context.Context, userID string) ([]*model.StoredLink, error)
+	SaveLinks(ctx context.Context, links []*model.StoredLink) ([]bool, error)
+
 	Init(ctx context.Context) error
 	Ping(ctx context.Context) error
 	Close()

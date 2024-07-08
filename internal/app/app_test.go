@@ -1,21 +1,25 @@
-package app
+package app_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/maxpain/shortener/config"
+	"github.com/maxpain/shortener/internal/app"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func initApp() (*App, error) {
+func initApp() (*app.App, error) {
 	ctx := context.Background()
 	cfg := config.New(
 		config.WithFileStoragePath(""),
@@ -23,7 +27,12 @@ func initApp() (*App, error) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	return New(ctx, cfg, logger)
+	a, err := app.New(ctx, cfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create app: %w", err)
+	}
+
+	return a, nil
 }
 
 func TestRouter(t *testing.T) {
@@ -32,6 +41,9 @@ func TestRouter(t *testing.T) {
 	app, err := initApp()
 	require.NoError(t, err)
 	t.Cleanup(app.Close)
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
 
 	tests := []struct {
 		name          string
@@ -86,12 +98,24 @@ func TestRouter(t *testing.T) {
 			isJSON:        true,
 		},
 		{
-			name:          "Shorten batch JSON",
-			method:        "POST",
-			path:          "/api/shorten/batch",
-			statusCode:    fiber.StatusCreated,
-			body:          `[{"original_url":"https://x.com/","correlation_id":"x"},{"original_url":"https://t.me/","correlation_id":"t"}]`,
-			response:      `[{"short_url":"http://localhost:8080/326a64","correlation_id":"x"},{"short_url":"http://localhost:8080/e70e7a","correlation_id":"t"}]`,
+			name:       "Shorten batch JSON",
+			method:     "POST",
+			path:       "/api/shorten/batch",
+			statusCode: fiber.StatusCreated,
+			body: `[{
+				"original_url": "https://x.com/",
+				"correlation_id": "x"
+			}, {
+				"original_url": "https://t.me/",
+				"correlation_id": "t"
+			}]`,
+			response: `[{
+				"short_url": "http://localhost:8080/326a64",
+				"correlation_id": "x"
+			}, {
+				"short_url": "http://localhost:8080/e70e7a",
+				"correlation_id": "t"
+			}]`,
 			checkResponse: true,
 			isJSON:        true,
 		},
@@ -103,6 +127,27 @@ func TestRouter(t *testing.T) {
 			location:      "https://yandex.ru",
 			checkLocation: true,
 		},
+		{
+			name:       "Get previously saved links",
+			method:     "GET",
+			path:       "/api/user/urls",
+			statusCode: fiber.StatusOK,
+			response: `[{
+				"original_url": "https://google.com",
+				"short_url": "http://localhost:8080/05046f"
+			}, {
+				"original_url": "https://yandex.ru",
+				"short_url": "http://localhost:8080/160009"
+			}, {
+				"original_url": "https://x.com/",
+				"short_url": "http://localhost:8080/326a64"
+			}, {
+				"original_url": "https://t.me/",
+				"short_url": "http://localhost:8080/e70e7a"
+			}]`,
+			checkResponse: true,
+			isJSON:        true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -111,15 +156,23 @@ func TestRouter(t *testing.T) {
 			require := require.New(t)
 
 			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			u := &url.URL{Scheme: "http", Host: req.Host, Path: req.URL.Path}
+
+			for _, cookie := range jar.Cookies(u) {
+				req.AddCookie(cookie)
+			}
 
 			if tt.isJSON {
 				req.Header.Set("Content-Type", "application/json")
 			}
 
 			resp, err := app.Test(req)
-			require.NoError(err)
 
+			require.NoError(err)
 			assert.Equal(tt.statusCode, resp.StatusCode, "status code")
+
+			// Store received cookies in the jar
+			jar.SetCookies(u, resp.Cookies())
 
 			if tt.checkResponse {
 				body, err := io.ReadAll(resp.Body)

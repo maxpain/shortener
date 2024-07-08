@@ -1,68 +1,85 @@
-package model
+package model_test
 
 import (
 	"testing"
 
+	"github.com/maxpain/shortener/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestGenerateHash(t *testing.T) {
+func TestGetStoredLink(t *testing.T) {
 	assert := assert.New(t)
 	t.Parallel()
 
 	tests := []struct {
-		url      string
-		expected string
+		originalURL  string
+		expectedHash string
 	}{
 		{
-			url:      "https://google.com",
-			expected: "05046f",
+			originalURL:  "https://google.com",
+			expectedHash: "05046f",
 		},
 		{
-			url:      "https://yandex.ru",
-			expected: "160009",
+			originalURL:  "https://yandex.ru",
+			expectedHash: "160009",
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
+		t.Run(tt.originalURL, func(t *testing.T) {
 			t.Parallel()
 
-			assert.Equal(tt.expected, generateHash(tt.url))
+			link := &model.Link{OriginalURL: tt.originalURL}
+			storedLink := link.GetStoredLink("test-user-id")
+
+			assert.Equal(tt.expectedHash, storedLink.Hash)
+			assert.Equal(tt.originalURL, storedLink.OriginalURL)
+			assert.Equal("test-user-id", storedLink.UserID)
 		})
 	}
 }
 
-func TestConstructURL(t *testing.T) {
+func TestGetShortenedLink(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
 	t.Parallel()
 
 	tests := []struct {
-		baseURL  string
-		postfix  string
-		expected string
+		originalURL  string
+		baseURL      string
+		expectedHash string
+		expectedURL  string
 	}{
 		{
-			baseURL:  "http://localhost:8080",
-			postfix:  "05046f",
-			expected: "http://localhost:8080/05046f",
+			originalURL:  "https://google.com",
+			baseURL:      "http://localhost:8080",
+			expectedHash: "05046f",
+			expectedURL:  "http://localhost:8080/05046f",
 		},
 		{
-			baseURL:  "https://example.com",
-			postfix:  "160009",
-			expected: "https://example.com/160009",
+			originalURL:  "https://yandex.ru",
+			baseURL:      "https://example.com",
+			expectedHash: "160009",
+			expectedURL:  "https://example.com/160009",
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.baseURL, func(t *testing.T) {
+		t.Run(tt.originalURL, func(t *testing.T) {
 			t.Parallel()
 
-			url, err := constructURL(tt.baseURL, tt.postfix)
+			link := &model.Link{
+				OriginalURL:   tt.originalURL,
+				CorrelationID: "test-correlation-id",
+			}
+
+			storedLink := link.GetStoredLink("test-user-id")
+			shortenedLink, err := storedLink.GetShortenedLink(tt.baseURL)
+
 			require.NoError(err)
-			assert.Equal(tt.expected, url)
+			assert.Equal(tt.expectedURL, shortenedLink.ShortURL)
+			assert.Equal("test-correlation-id", shortenedLink.CorrelationID)
 		})
 	}
 }

@@ -10,8 +10,8 @@ import (
 )
 
 const insertLink = `-- name: InsertLink :execrows
-INSERT INTO links (hash, original_url, correlation_id)
-VALUES ($1, $2, $3)
+INSERT INTO links (hash, original_url, correlation_id, user_id)
+VALUES ($1, $2, $3, $4)
 ON CONFLICT (hash) DO NOTHING
 `
 
@@ -19,15 +19,21 @@ type InsertLinkParams struct {
 	Hash          string
 	OriginalUrl   string
 	CorrelationID string
+	UserID        string
 }
 
 // InsertLink
 //
-//	INSERT INTO links (hash, original_url, correlation_id)
-//	VALUES ($1, $2, $3)
+//	INSERT INTO links (hash, original_url, correlation_id, user_id)
+//	VALUES ($1, $2, $3, $4)
 //	ON CONFLICT (hash) DO NOTHING
 func (q *Queries) InsertLink(ctx context.Context, arg InsertLinkParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertLink, arg.Hash, arg.OriginalUrl, arg.CorrelationID)
+	result, err := q.db.Exec(ctx, insertLink,
+		arg.Hash,
+		arg.OriginalUrl,
+		arg.CorrelationID,
+		arg.UserID,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -35,28 +41,60 @@ func (q *Queries) InsertLink(ctx context.Context, arg InsertLinkParams) (int64, 
 }
 
 const selectLink = `-- name: SelectLink :one
-SELECT
-	original_url,
-	correlation_id
+SELECT hash, original_url, correlation_id, user_id
 FROM links
 WHERE hash = $1
 `
 
-type SelectLinkRow struct {
-	OriginalUrl   string
-	CorrelationID string
-}
-
 // SelectLink
 //
-//	SELECT
-//		original_url,
-//		correlation_id
+//	SELECT hash, original_url, correlation_id, user_id
 //	FROM links
 //	WHERE hash = $1
-func (q *Queries) SelectLink(ctx context.Context, hash string) (SelectLinkRow, error) {
+func (q *Queries) SelectLink(ctx context.Context, hash string) (Link, error) {
 	row := q.db.QueryRow(ctx, selectLink, hash)
-	var i SelectLinkRow
-	err := row.Scan(&i.OriginalUrl, &i.CorrelationID)
+	var i Link
+	err := row.Scan(
+		&i.Hash,
+		&i.OriginalUrl,
+		&i.CorrelationID,
+		&i.UserID,
+	)
 	return i, err
+}
+
+const selectUserLinks = `-- name: SelectUserLinks :many
+SELECT hash, original_url, correlation_id, user_id
+FROM links
+WHERE user_id = $1
+`
+
+// SelectUserLinks
+//
+//	SELECT hash, original_url, correlation_id, user_id
+//	FROM links
+//	WHERE user_id = $1
+func (q *Queries) SelectUserLinks(ctx context.Context, userID string) ([]Link, error) {
+	rows, err := q.db.Query(ctx, selectUserLinks, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Link{}
+	for rows.Next() {
+		var i Link
+		if err := rows.Scan(
+			&i.Hash,
+			&i.OriginalUrl,
+			&i.CorrelationID,
+			&i.UserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

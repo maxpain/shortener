@@ -10,6 +10,7 @@ type Config struct {
 	BaseURL         string
 	FileStoragePath string
 	DatabaseDSN     string
+	JwtSecret       string
 }
 
 type Option func(*Config)
@@ -20,6 +21,7 @@ func New(opts ...Option) *Config {
 		BaseURL:         "http://localhost:8080",
 		FileStoragePath: "/tmp/short-url-db.json",
 		DatabaseDSN:     "",
+		JwtSecret:       "secret",
 	}
 
 	for _, opt := range opts {
@@ -53,11 +55,18 @@ func WithDatabaseDSN(dsn string) Option {
 	}
 }
 
+func WithJwtSecret(secret string) Option {
+	return func(c *Config) {
+		c.JwtSecret = secret
+	}
+}
+
 func (c *Config) ParseFlags() {
 	flag.StringVar(&c.ServerAddr, "a", c.ServerAddr, "Server address")
 	flag.StringVar(&c.BaseURL, "b", c.BaseURL, "Base url for generated links")
 	flag.StringVar(&c.FileStoragePath, "f", c.FileStoragePath, "Path to file storage")
 	flag.StringVar(&c.DatabaseDSN, "d", c.DatabaseDSN, "Database DSN (optional)")
+	flag.StringVar(&c.JwtSecret, "j", c.JwtSecret, "JWT secret")
 
 	flag.Parse()
 }
@@ -77,5 +86,9 @@ func (c *Config) LoadFromEnv() {
 
 	if dsn, ok := os.LookupEnv("DATABASE_DSN"); ok {
 		c.DatabaseDSN = dsn
+	}
+
+	if secret, ok := os.LookupEnv("JWT_SECRET"); ok {
+		c.JwtSecret = secret
 	}
 }

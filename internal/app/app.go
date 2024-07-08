@@ -7,8 +7,6 @@ import (
 	"os"
 
 	"github.com/gofiber/fiber/v2"
-	compressMiddleware "github.com/gofiber/fiber/v2/middleware/compress"
-	loggerMiddleware "github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maxpain/shortener/config"
 	"github.com/maxpain/shortener/internal/handler"
@@ -38,7 +36,7 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*App, er
 	useCase := usecase.New(repo, logger)
 	handler := handler.New(useCase, logger, cfg.BaseURL)
 	app := fiber.New()
-	setupRoutes(app, handler)
+	setupRoutes(app, cfg, logger, handler)
 
 	return &App{
 		App:        app,
@@ -47,23 +45,14 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*App, er
 	}, nil
 }
 
-func setupRoutes(app *fiber.App, handler *handler.LinkHandler) {
-	app.Use(compressMiddleware.New())
-	app.Use(loggerMiddleware.New())
-
-	app.Get("/ping", handler.Ping)
-	app.Get("/:hash", handler.Redirect)
-	app.Post("/", handler.ShortenSinglePlain)
-	app.Post("/api/shorten", handler.ShortenSingleJSON)
-	app.Post("/api/shorten/batch", handler.ShortenBatchJSON)
-}
-
 func getRepository(ctx context.Context, cfg *config.Config, logger *slog.Logger) (repository.Repository, error) {
 	if cfg.DatabaseDSN != "" {
 		db, err := pgxpool.New(ctx, cfg.DatabaseDSN)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to database: %w", err)
 		}
+
+		logger.Info("Initialized postgres repository")
 
 		return postgresRepository.New(db, logger), nil
 	}
@@ -77,6 +66,10 @@ func getRepository(ctx context.Context, cfg *config.Config, logger *slog.Logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open file %s : %w", cfg.FileStoragePath, err)
 		}
+
+		logger.Info("Initialized memory repository with persistence")
+	} else {
+		logger.Info("Initialized memory repository without persistence")
 	}
 
 	return memoryRepository.New(file, logger), nil

@@ -8,4 +8,5 @@ type Link struct {
 	Hash          string
 	OriginalUrl   string
 	CorrelationID string
+	UserID        string
 }

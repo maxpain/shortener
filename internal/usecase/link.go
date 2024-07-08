@@ -27,12 +27,13 @@ func (u *LinkUseCase) Shorten(
 	ctx context.Context,
 	linksToShorten []*model.Link,
 	baseURL string,
+	userID string,
 ) ([]*model.ShortenedLink, error) {
 	linksToStore := make([]*model.StoredLink, 0, len(linksToShorten))
 	shortenedLinks := make([]*model.ShortenedLink, 0, len(linksToShorten))
 
 	for _, linkToShorten := range linksToShorten {
-		storedLink := linkToShorten.GetStoredLink()
+		storedLink := linkToShorten.GetStoredLink(userID)
 		linksToStore = append(linksToStore, storedLink)
 
 		shortenedLink, err := storedLink.GetShortenedLink(baseURL)
@@ -43,7 +44,7 @@ func (u *LinkUseCase) Shorten(
 		shortenedLinks = append(shortenedLinks, shortenedLink)
 	}
 
-	results, err := u.repo.Save(ctx, linksToStore)
+	results, err := u.repo.SaveLinks(ctx, linksToStore)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save links: %w", err)
 	}
@@ -55,16 +56,37 @@ func (u *LinkUseCase) Shorten(
 	return shortenedLinks, nil
 }
 
-func (u *LinkUseCase) Resolve(
-	ctx context.Context,
-	hash string,
-) (string, error) {
-	storedLink, err := u.repo.Get(ctx, hash)
+func (u *LinkUseCase) Resolve(ctx context.Context, hash string) (string, error) {
+	storedLink, err := u.repo.GetLink(ctx, hash)
 	if err != nil {
 		return "", fmt.Errorf("failed to get link from repo: %w", err)
 	}
 
 	return storedLink.OriginalURL, nil
+}
+
+func (u *LinkUseCase) GetUserLinks(ctx context.Context, baseURL string, userID string) ([]*model.UserLink, error) {
+	links, err := u.repo.GetUserLinks(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user links: %w", err)
+	}
+
+	userLinks := make([]*model.UserLink, 0, len(links))
+
+	for _, link := range links {
+		shortenedLink, err := link.GetShortenedLink(baseURL)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to get shortened link: %w", err)
+		}
+
+		userLinks = append(userLinks, &model.UserLink{
+			OriginalURL: link.OriginalURL,
+			ShortURL:    shortenedLink.ShortURL,
+		})
+	}
+
+	return userLinks, nil
 }
 
 func (u *LinkUseCase) Ping(ctx context.Context) error {

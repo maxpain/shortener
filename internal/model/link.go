@@ -16,9 +16,15 @@ type (
 		CorrelationID string `json:"correlation_id"`
 	}
 
+	UserLink struct {
+		OriginalURL string `json:"original_url"`
+		ShortURL    string `json:"short_url"`
+	}
+
 	StoredLink struct {
 		*Link
-		Hash string `json:"hash"`
+		UserID string `json:"user_id"`
+		Hash   string `json:"hash"`
 	}
 
 	ShortenedLink struct {
@@ -30,10 +36,11 @@ type (
 
 var ErrNotFound = errors.New("Link not found")
 
-func (l *Link) GetStoredLink() *StoredLink {
+func (l *Link) GetStoredLink(userID string) *StoredLink {
 	return &StoredLink{
-		Link: l,
-		Hash: generateHash(l.OriginalURL),
+		Link:   l,
+		Hash:   generateHash(l.OriginalURL),
+		UserID: userID,
 	}
 }
 

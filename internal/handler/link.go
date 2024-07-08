@@ -6,12 +6,14 @@ import (
 	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/maxpain/shortener/internal/model"
 )
 
 type LinkUseCase interface {
-	Shorten(ctx context.Context, links []*model.Link, baseURL string) ([]*model.ShortenedLink, error)
+	Shorten(ctx context.Context, links []*model.Link, baseURL string, userID string) ([]*model.ShortenedLink, error)
 	Resolve(ctx context.Context, hash string) (string, error)
+	GetUserLinks(ctx context.Context, baseURL string, userID string) ([]*model.UserLink, error)
 	Ping(ctx context.Context) error
 }
 
@@ -29,6 +31,29 @@ func New(u LinkUseCase, logger *slog.Logger, baseURL string) *LinkHandler {
 		baseURL: baseURL,
 		useCase: u,
 	}
+}
+
+func (h *LinkHandler) getUserIdFromContext(c *fiber.Ctx) (string, error) {
+	token, ok := c.Locals("user").(*jwt.Token)
+	if !ok {
+		return "", errors.New("failed to get token from context")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		h.logger.Debug("Failed to get claims from token")
+
+		return "", errors.New("failed to get claims from token")
+	}
+
+	userID, ok := claims["userID"].(string)
+	if !ok {
+		h.logger.Debug("Failed to get userID from claims")
+
+		return "", errors.New("failed to get userID from claims")
+	}
+
+	return userID, nil
 }
 
 func (h *LinkHandler) Ping(c *fiber.Ctx) error {
@@ -64,13 +89,25 @@ func (h *LinkHandler) Redirect(c *fiber.Ctx) error {
 }
 
 func (h *LinkHandler) ShortenSinglePlain(c *fiber.Ctx) error {
+	userID, err := h.getUserIdFromContext(c)
+	if err != nil {
+		h.logger.Error("Failed to get user ID from context", slog.Any("error", err))
+
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
 	originalURL := string(c.Body())
 
 	if originalURL == "" {
 		return c.Status(fiber.StatusBadRequest).SendString("URL is required")
 	}
 
-	shortenedLinks, err := h.useCase.Shorten(c.Context(), []*model.Link{{OriginalURL: originalURL}}, h.baseURL)
+	shortenedLinks, err := h.useCase.Shorten(
+		c.Context(),
+		[]*model.Link{{OriginalURL: originalURL}},
+		h.baseURL,
+		userID,
+	)
 	if err != nil {
 		h.logger.Error("Failed to shorten URL", slog.Any("error", err))
 
@@ -93,6 +130,13 @@ func (h *LinkHandler) ShortenSinglePlain(c *fiber.Ctx) error {
 }
 
 func (h *LinkHandler) ShortenSingleJSON(c *fiber.Ctx) error {
+	userID, err := h.getUserIdFromContext(c)
+	if err != nil {
+		h.logger.Error("Failed to get user ID from context", slog.Any("error", err))
+
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
 	var r struct {
 		URL string `json:"url"`
 	}
@@ -105,7 +149,7 @@ func (h *LinkHandler) ShortenSingleJSON(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "URL is required"})
 	}
 
-	shortenedLinks, err := h.useCase.Shorten(c.Context(), []*model.Link{{OriginalURL: r.URL}}, h.baseURL)
+	shortenedLinks, err := h.useCase.Shorten(c.Context(), []*model.Link{{OriginalURL: r.URL}}, h.baseURL, userID)
 	if err != nil {
 		h.logger.Error("Failed to shorten URL", slog.Any("error", err))
 
@@ -128,6 +172,13 @@ func (h *LinkHandler) ShortenSingleJSON(c *fiber.Ctx) error {
 }
 
 func (h *LinkHandler) ShortenBatchJSON(c *fiber.Ctx) error {
+	userID, err := h.getUserIdFromContext(c)
+	if err != nil {
+		h.logger.Error("Failed to get user ID from context", slog.Any("error", err))
+
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
 	var links []*model.Link
 
 	if err := c.BodyParser(&links); err != nil {
@@ -138,7 +189,7 @@ func (h *LinkHandler) ShortenBatchJSON(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "URLs are required"})
 	}
 
-	shortenedLinks, err := h.useCase.Shorten(c.Context(), links, h.baseURL)
+	shortenedLinks, err := h.useCase.Shorten(c.Context(), links, h.baseURL, userID)
 	if err != nil {
 		h.logger.Error("Failed to shorten URLs", slog.Any("error", err))
 
@@ -162,4 +213,22 @@ func (h *LinkHandler) ShortenBatchJSON(c *fiber.Ctx) error {
 	}
 
 	return c.Status(status).JSON(shortenedLinks)
+}
+
+func (h *LinkHandler) GetUserLinks(c *fiber.Ctx) error {
+	userID, err := h.getUserIdFromContext(c)
+	if err != nil {
+		h.logger.Error("Failed to get user ID from context", slog.Any("error", err))
+
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
+	links, err := h.useCase.GetUserLinks(c.Context(), h.baseURL, userID)
+	if err != nil {
+		h.logger.Error("Failed to get user links", slog.Any("error", err))
+
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
+	return c.JSON(links)
 }

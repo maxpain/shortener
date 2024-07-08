@@ -14,3 +14,12 @@ linters-settings:
   wrapcheck:
     ignorePackageGlobs:
       - github.com/gofiber/fiber/*
+
+issues:
+  exclude-rules:
+    - path: (.+)_test.go
+      linters:
+        - lll
+        - funlen
+        - tparallel
+        - paralleltest

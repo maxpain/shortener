@@ -16,9 +16,10 @@ import (
 var errCastLink = errors.New("failed to cast link")
 
 type Repository struct {
-	logger *slog.Logger
-	links  sync.Map
-	file   *os.File
+	logger    *slog.Logger
+	links     sync.Map
+	userLinks sync.Map
+	file      *os.File
 }
 
 // Create a new memory repository with optional persistence to the file.
@@ -49,20 +50,13 @@ func (r *Repository) Init(_ context.Context) error {
 			return fmt.Errorf("failed to decode link: %w", err)
 		}
 
-		r.links.Store(link.Hash, &link)
-		r.logger.Debug("loaded link",
-			slog.Group("link",
-				slog.String("hash", link.Hash),
-				slog.String("original_url", link.OriginalURL),
-				slog.String("correlation_id", link.CorrelationID),
-			),
-		)
+		r.saveLinkToMemory(&link)
 	}
 
 	return nil
 }
 
-func (r *Repository) Get(_ context.Context, hash string) (*model.StoredLink, error) {
+func (r *Repository) GetLink(_ context.Context, hash string) (*model.StoredLink, error) {
 	if l, ok := r.links.Load(hash); ok {
 		link, ok := l.(*model.StoredLink)
 
@@ -76,14 +70,31 @@ func (r *Repository) Get(_ context.Context, hash string) (*model.StoredLink, err
 	return nil, model.ErrNotFound
 }
 
-func (r *Repository) Save(ctx context.Context, linksToStore []*model.StoredLink) ([]bool, error) {
+func (r *Repository) GetUserLinks(_ context.Context, userID string) ([]*model.StoredLink, error) {
+	if l, ok := r.userLinks.Load(userID); ok {
+		links, ok := l.([]*model.StoredLink)
+
+		if !ok {
+			return nil, errCastLink
+		}
+
+		return links, nil
+	}
+
+	r.logger.Debug("user links not found",
+		slog.String("user_id", userID),
+	)
+
+	return []*model.StoredLink{}, nil
+}
+
+func (r *Repository) SaveLinks(ctx context.Context, linksToStore []*model.StoredLink) ([]bool, error) {
 	results := make([]bool, 0, len(linksToStore))
 
 	for _, link := range linksToStore {
 		isExists := true
 
-		_, err := r.Get(ctx, link.Hash)
-		if err != nil {
+		if _, err := r.GetLink(ctx, link.Hash); err != nil {
 			if errors.Is(err, model.ErrNotFound) {
 				isExists = false
 			} else {
@@ -92,13 +103,12 @@ func (r *Repository) Save(ctx context.Context, linksToStore []*model.StoredLink)
 		}
 
 		if !isExists {
-			r.links.Store(link.Hash, link)
+			if err := r.saveLinkToMemory(link); err != nil {
+				return nil, fmt.Errorf("failed to save link to memory: %w", err)
+			}
 
-			if r.file != nil {
-				err := json.NewEncoder(r.file).Encode(link)
-				if err != nil {
-					return nil, fmt.Errorf("failed to encode link: %w", err)
-				}
+			if err := r.saveLinkToFile(link); err != nil {
+				return nil, fmt.Errorf("failed to save link to file: %w", err)
 			}
 		}
 
@@ -106,6 +116,45 @@ func (r *Repository) Save(ctx context.Context, linksToStore []*model.StoredLink)
 	}
 
 	return results, nil
+}
+
+func (r *Repository) saveLinkToMemory(link *model.StoredLink) error {
+	r.logger.Debug("saving link to memory",
+		slog.Group("link",
+			slog.String("hash", link.Hash),
+			slog.String("original_url", link.OriginalURL),
+			slog.String("correlation_id", link.CorrelationID),
+			slog.String("user_id", link.UserID),
+		),
+	)
+
+	r.links.Store(link.Hash, link)
+	userLinks := []*model.StoredLink{link}
+
+	if l, ok := r.userLinks.Load(link.UserID); ok {
+		links, ok := l.([]*model.StoredLink)
+
+		if !ok {
+			return errCastLink
+		}
+
+		userLinks = append(links, userLinks...)
+	}
+
+	r.userLinks.Store(link.UserID, userLinks)
+
+	return nil
+}
+
+func (r *Repository) saveLinkToFile(link *model.StoredLink) error {
+	if r.file != nil {
+		err := json.NewEncoder(r.file).Encode(link)
+		if err != nil {
+			return fmt.Errorf("failed to encode link: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (r *Repository) Ping(_ context.Context) error {
