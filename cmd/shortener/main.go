@@ -18,15 +18,15 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 
-	app, err := app.New(context.Background(), cfg, logger)
+	shortenerApp, err := app.New(context.Background(), cfg, logger)
 	if err != nil {
 		logger.Error("failed to create app", slog.Any("error", err))
 		os.Exit(1)
 	}
 
-	defer app.Close()
+	defer shortenerApp.Close()
 
-	err = app.Listen(cfg.ServerAddr)
+	err = shortenerApp.Listen(cfg.ServerAddr)
 	if err != nil {
 		logger.Error("failed to start app", slog.Any("error", err))
 	}

@@ -27,20 +27,20 @@ func initApp() (*app.App, error) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	a, err := app.New(ctx, cfg, logger)
+	shortenerApp, err := app.New(ctx, cfg, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create app: %w", err)
 	}
 
-	return a, nil
+	return shortenerApp, nil
 }
 
 func TestRouter(t *testing.T) {
 	t.Parallel()
 
-	app, err := initApp()
+	shortenerApp, err := initApp()
 	require.NoError(t, err)
-	t.Cleanup(app.Close)
+	t.Cleanup(shortenerApp.Close)
 
 	jar, err := cookiejar.New(nil)
 	require.NoError(t, err)
@@ -166,7 +166,7 @@ func TestRouter(t *testing.T) {
 				req.Header.Set("Content-Type", "application/json")
 			}
 
-			resp, err := app.Test(req)
+			resp, err := shortenerApp.Test(req)
 
 			require.NoError(err)
 			assert.Equal(tt.statusCode, resp.StatusCode, "status code")
