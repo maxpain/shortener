@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -53,7 +54,7 @@ func (r *Repository) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	go r.deleteLoop()
+	go r.deleteLoop(ctx)
 
 	return nil
 }
@@ -144,14 +145,28 @@ func (r *Repository) MarkForDeletion(hashes []string, userID string) error {
 	return nil
 }
 
-func (r *Repository) deleteLoop() {
-	for req := range r.deleteCh {
-		err := r.queries.MarkLinksAsDeleted(context.Background(), queries.MarkLinksAsDeletedParams{
-			Hashes: req.Hashes,
-			UserID: req.UserID,
-		})
-		if err != nil {
-			r.logger.Error("failed to mark links as deleted", slog.Any("error", err))
+func (r *Repository) deleteLoop(ctx context.Context) {
+	for {
+		select {
+		case req := <-r.deleteCh:
+			timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+
+			err := r.queries.MarkLinksAsDeleted(timeoutCtx, queries.MarkLinksAsDeletedParams{
+				Hashes: req.Hashes,
+				UserID: req.UserID,
+			})
+			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					r.logger.Error("deletion request to DB timed out", slog.Any("error", err))
+				} else {
+					r.logger.Error("failed to mark links as deleted", slog.Any("error", err))
+				}
+			}
+		case <-ctx.Done():
+			r.logger.Info("context cancelled, stopping deleteLoop")
+
+			return
 		}
 	}
 }
