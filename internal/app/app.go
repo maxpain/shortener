@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maxpain/shortener/config"
 	"github.com/maxpain/shortener/internal/handler"
-	"github.com/maxpain/shortener/internal/repository"
 	memoryRepository "github.com/maxpain/shortener/internal/repository/memory"
 	postgresRepository "github.com/maxpain/shortener/internal/repository/postgres"
 	"github.com/maxpain/shortener/internal/usecase"
@@ -19,7 +18,7 @@ import (
 type App struct {
 	*fiber.App
 	logger     *slog.Logger
-	repository repository.Repository
+	repository usecase.Repository
 }
 
 func New(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*App, error) {
@@ -45,7 +44,7 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*App, er
 	}, nil
 }
 
-func getRepository(ctx context.Context, cfg *config.Config, logger *slog.Logger) (repository.Repository, error) {
+func getRepository(ctx context.Context, cfg *config.Config, logger *slog.Logger) (usecase.Repository, error) {
 	if cfg.DatabaseDSN != "" {
 		db, err := pgxpool.New(ctx, cfg.DatabaseDSN)
 		if err != nil {

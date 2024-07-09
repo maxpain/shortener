@@ -3,18 +3,30 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 
 	"github.com/maxpain/shortener/internal/model"
-	"github.com/maxpain/shortener/internal/repository"
 )
+
+type Repository interface {
+	io.Closer
+
+	GetLink(ctx context.Context, hash string) (*model.StoredLink, error)
+	GetUserLinks(ctx context.Context, userID string) ([]*model.StoredLink, error)
+	SaveLinks(ctx context.Context, links []*model.StoredLink) ([]bool, error)
+	MarkForDeletion(hashes []string, userID string) error
+
+	Init(ctx context.Context) error
+	Ping(ctx context.Context) error
+}
 
 type LinkUseCase struct {
 	logger *slog.Logger
-	repo   repository.Repository
+	repo   Repository
 }
 
-func New(repo repository.Repository, logger *slog.Logger) *LinkUseCase {
+func New(repo Repository, logger *slog.Logger) *LinkUseCase {
 	return &LinkUseCase{
 		logger: logger.With(
 			slog.String("usecase", "link"),
