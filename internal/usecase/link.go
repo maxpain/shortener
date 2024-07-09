@@ -62,6 +62,10 @@ func (u *LinkUseCase) Resolve(ctx context.Context, hash string) (string, error) 
 		return "", fmt.Errorf("failed to get link from repo: %w", err)
 	}
 
+	if storedLink.IsDeleted {
+		return "", model.ErrDeleted
+	}
+
 	return storedLink.OriginalURL, nil
 }
 
@@ -74,6 +78,10 @@ func (u *LinkUseCase) GetUserLinks(ctx context.Context, baseURL string, userID s
 	userLinks := make([]*model.UserLink, 0, len(links))
 
 	for _, link := range links {
+		if link.IsDeleted {
+			continue
+		}
+
 		shortenedLink, err := link.GetShortenedLink(baseURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get shortened link: %w", err)
@@ -86,6 +94,15 @@ func (u *LinkUseCase) GetUserLinks(ctx context.Context, baseURL string, userID s
 	}
 
 	return userLinks, nil
+}
+
+func (u *LinkUseCase) DeleteUserLinks(hashes []string, userID string) error {
+	err := u.repo.MarkForDeletion(hashes, userID)
+	if err != nil {
+		return fmt.Errorf("failed to mark links for deletion: %w", err)
+	}
+
+	return nil
 }
 
 func (u *LinkUseCase) Ping(ctx context.Context) error {

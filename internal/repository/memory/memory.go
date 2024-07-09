@@ -121,6 +121,10 @@ func (r *Repository) SaveLinks(ctx context.Context, linksToStore []*model.Stored
 	return results, nil
 }
 
+func (r *Repository) MarkForDeletion(hashes []string, userID string) error {
+	return nil
+}
+
 func (r *Repository) saveLinkToMemory(link *model.StoredLink) error {
 	r.logger.Debug("saving link to memory",
 		slog.Group("link",
@@ -164,8 +168,10 @@ func (r *Repository) Ping(_ context.Context) error {
 	return nil
 }
 
-func (r *Repository) Close() {
+func (r *Repository) Close() error {
 	if r.file != nil {
-		r.file.Close()
+		return r.file.Close()
 	}
+
+	return nil
 }

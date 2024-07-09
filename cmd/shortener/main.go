@@ -15,7 +15,7 @@ func main() {
 	cfg.LoadFromEnv()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: slog.LevelInfo,
 	}))
 
 	app, err := app.New(context.Background(), cfg, logger)

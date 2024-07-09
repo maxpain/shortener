@@ -13,9 +13,15 @@ import (
 )
 
 type Repository struct {
-	logger  *slog.Logger
-	db      *pgxpool.Pool
-	queries *queries.Queries
+	logger   *slog.Logger
+	db       *pgxpool.Pool
+	queries  *queries.Queries
+	deleteCh chan DeletionRequest
+}
+
+type DeletionRequest struct {
+	Hashes []string
+	UserID string
 }
 
 // Create a new memory repository with optional persistence to the file.
@@ -24,8 +30,9 @@ func New(db *pgxpool.Pool, logger *slog.Logger) *Repository {
 		logger: logger.With(
 			slog.String("repository", "postgres"),
 		),
-		db:      db,
-		queries: queries.New(db),
+		db:       db,
+		queries:  queries.New(db),
+		deleteCh: make(chan DeletionRequest, 1024),
 	}
 }
 
@@ -35,7 +42,8 @@ func (r *Repository) Init(ctx context.Context) error {
 			hash VARCHAR(6) PRIMARY KEY,
 			original_url TEXT NOT NULL,
 			correlation_id TEXT NOT NULL,
-			user_id TEXT NOT NULL
+			user_id TEXT NOT NULL,
+			is_deleted BOOLEAN DEFAULT FALSE NOT NULL
 		);
 
 		CREATE INDEX IF NOT EXISTS correlation_id_idx ON links (correlation_id);
@@ -44,6 +52,8 @@ func (r *Repository) Init(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
+
+	go r.deleteLoop()
 
 	return nil
 }
@@ -59,8 +69,9 @@ func (r *Repository) GetLink(ctx context.Context, hash string) (*model.StoredLin
 	}
 
 	return &model.StoredLink{
-		Hash:   row.Hash,
-		UserID: row.UserID,
+		Hash:      row.Hash,
+		UserID:    row.UserID,
+		IsDeleted: row.IsDeleted,
 		Link: &model.Link{
 			OriginalURL:   row.OriginalUrl,
 			CorrelationID: row.CorrelationID,
@@ -78,8 +89,9 @@ func (r *Repository) GetUserLinks(ctx context.Context, userID string) ([]*model.
 
 	for _, row := range rows {
 		links = append(links, &model.StoredLink{
-			Hash:   row.Hash,
-			UserID: row.UserID,
+			Hash:      row.Hash,
+			UserID:    row.UserID,
+			IsDeleted: row.IsDeleted,
 			Link: &model.Link{
 				OriginalURL:   row.OriginalUrl,
 				CorrelationID: row.CorrelationID,
@@ -123,6 +135,27 @@ func (r *Repository) SaveLinks(ctx context.Context, linksToStore []*model.Stored
 	return results, nil
 }
 
+func (r *Repository) MarkForDeletion(hashes []string, userID string) error {
+	r.deleteCh <- DeletionRequest{
+		Hashes: hashes,
+		UserID: userID,
+	}
+
+	return nil
+}
+
+func (r *Repository) deleteLoop() {
+	for req := range r.deleteCh {
+		err := r.queries.MarkLinksAsDeleted(context.Background(), queries.MarkLinksAsDeletedParams{
+			Hashes: req.Hashes,
+			UserID: req.UserID,
+		})
+		if err != nil {
+			r.logger.Error("failed to mark links as deleted", slog.Any("error", err))
+		}
+	}
+}
+
 func (r *Repository) Ping(ctx context.Context) error {
 	err := r.db.Ping(ctx)
 	if err != nil {
@@ -132,6 +165,9 @@ func (r *Repository) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (r *Repository) Close() {
+func (r *Repository) Close() error {
 	r.db.Close()
+	close(r.deleteCh)
+
+	return nil
 }

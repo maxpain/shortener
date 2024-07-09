@@ -23,8 +23,9 @@ type (
 
 	StoredLink struct {
 		*Link
-		UserID string `json:"user_id"`
-		Hash   string `json:"hash"`
+		UserID    string `json:"user_id"`
+		Hash      string `json:"hash"`
+		IsDeleted bool   `json:"is_deleted"`
 	}
 
 	ShortenedLink struct {
@@ -34,7 +35,10 @@ type (
 	}
 )
 
-var ErrNotFound = errors.New("Link not found")
+var (
+	ErrNotFound = errors.New("Link not found")
+	ErrDeleted  = errors.New("Link is deleted")
+)
 
 func (l *Link) GetStoredLink(userID string) *StoredLink {
 	return &StoredLink{

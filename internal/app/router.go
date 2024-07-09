@@ -67,6 +67,7 @@ func setupRoutes(
 
 	// API routes
 	app.Get("/api/user/urls", handler.GetUserLinks)
+	app.Delete("/api/user/urls", handler.DeleteUserLinks)
 	app.Post("/api/shorten", handler.ShortenSingleJSON)
 	app.Post("/api/shorten/batch", handler.ShortenBatchJSON)
 }

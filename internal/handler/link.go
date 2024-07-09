@@ -14,6 +14,7 @@ type LinkUseCase interface {
 	Shorten(ctx context.Context, links []*model.Link, baseURL string, userID string) ([]*model.ShortenedLink, error)
 	Resolve(ctx context.Context, hash string) (string, error)
 	GetUserLinks(ctx context.Context, baseURL string, userID string) ([]*model.UserLink, error)
+	DeleteUserLinks(hashes []string, userID string) error
 	Ping(ctx context.Context) error
 }
 
@@ -84,6 +85,10 @@ func (h *LinkHandler) Redirect(c *fiber.Ctx) error {
 	if err != nil {
 		if errors.Is(err, model.ErrNotFound) {
 			return c.Status(fiber.StatusNotFound).SendString("URL not found")
+		}
+
+		if errors.Is(err, model.ErrDeleted) {
+			return c.SendStatus(fiber.StatusGone)
 		}
 
 		h.logger.Error("Failed to resolve URL", slog.Any("error", err))
@@ -245,4 +250,32 @@ func (h *LinkHandler) GetUserLinks(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(links)
+}
+
+func (h *LinkHandler) DeleteUserLinks(c *fiber.Ctx) error {
+	userID, err := h.getUserIDFromContext(c)
+	if err != nil {
+		h.logger.Error("Failed to get user ID from context", slog.Any("error", err))
+
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
+	var hashes []string
+
+	if err := c.BodyParser(&hashes); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON payload"})
+	}
+
+	if len(hashes) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Hashes are required"})
+	}
+
+	err = h.useCase.DeleteUserLinks(hashes, userID)
+	if err != nil {
+		h.logger.Error("Failed to delete user links", slog.Any("error", err))
+
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
+	return c.SendStatus(fiber.StatusAccepted)
 }

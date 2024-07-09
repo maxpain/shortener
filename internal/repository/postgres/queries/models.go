@@ -9,4 +9,5 @@ type Link struct {
 	OriginalUrl   string
 	CorrelationID string
 	UserID        string
+	IsDeleted     bool
 }

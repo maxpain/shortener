@@ -40,15 +40,36 @@ func (q *Queries) InsertLink(ctx context.Context, arg InsertLinkParams) (int64, 
 	return result.RowsAffected(), nil
 }
 
+const markLinksAsDeleted = `-- name: MarkLinksAsDeleted :exec
+UPDATE links
+SET is_deleted = true
+WHERE user_id = $1 AND hash = ANY($2::text[])
+`
+
+type MarkLinksAsDeletedParams struct {
+	UserID string
+	Hashes []string
+}
+
+// MarkLinksAsDeleted
+//
+//	UPDATE links
+//	SET is_deleted = true
+//	WHERE user_id = $1 AND hash = ANY($2::text[])
+func (q *Queries) MarkLinksAsDeleted(ctx context.Context, arg MarkLinksAsDeletedParams) error {
+	_, err := q.db.Exec(ctx, markLinksAsDeleted, arg.UserID, arg.Hashes)
+	return err
+}
+
 const selectLink = `-- name: SelectLink :one
-SELECT hash, original_url, correlation_id, user_id
+SELECT hash, original_url, correlation_id, user_id, is_deleted
 FROM links
 WHERE hash = $1
 `
 
 // SelectLink
 //
-//	SELECT hash, original_url, correlation_id, user_id
+//	SELECT hash, original_url, correlation_id, user_id, is_deleted
 //	FROM links
 //	WHERE hash = $1
 func (q *Queries) SelectLink(ctx context.Context, hash string) (Link, error) {
@@ -59,19 +80,20 @@ func (q *Queries) SelectLink(ctx context.Context, hash string) (Link, error) {
 		&i.OriginalUrl,
 		&i.CorrelationID,
 		&i.UserID,
+		&i.IsDeleted,
 	)
 	return i, err
 }
 
 const selectUserLinks = `-- name: SelectUserLinks :many
-SELECT hash, original_url, correlation_id, user_id
+SELECT hash, original_url, correlation_id, user_id, is_deleted
 FROM links
 WHERE user_id = $1
 `
 
 // SelectUserLinks
 //
-//	SELECT hash, original_url, correlation_id, user_id
+//	SELECT hash, original_url, correlation_id, user_id, is_deleted
 //	FROM links
 //	WHERE user_id = $1
 func (q *Queries) SelectUserLinks(ctx context.Context, userID string) ([]Link, error) {
@@ -88,6 +110,7 @@ func (q *Queries) SelectUserLinks(ctx context.Context, userID string) ([]Link, e
 			&i.OriginalUrl,
 			&i.CorrelationID,
 			&i.UserID,
+			&i.IsDeleted,
 		); err != nil {
 			return nil, err
 		}
