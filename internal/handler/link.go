@@ -34,12 +34,6 @@ func New(u LinkUseCase, logger *slog.Logger, baseURL string) *LinkHandler {
 	}
 }
 
-var (
-	errUnauthorized        = errors.New("unauthorized")
-	errGetClaimsFromToken  = errors.New("failed to get claims from token")
-	errGetUserIDFromClaims = errors.New("failed to get userID from claims")
-)
-
 func (h *LinkHandler) getUserIDFromContext(c *fiber.Ctx) (string, error) {
 	token, ok := c.Locals("user").(*jwt.Token)
 	if !ok {
@@ -153,11 +147,11 @@ func (h *LinkHandler) ShortenSingleJSON(c *fiber.Ctx) error {
 	}
 
 	if err := c.BodyParser(&r); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON payload"})
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: "Invalid JSON payload"})
 	}
 
 	if r.URL == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "URL is required"})
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: "URL is required"})
 	}
 
 	shortenedLinks, err := h.useCase.Shorten(c.Context(), []*model.Link{{OriginalURL: r.URL}}, h.baseURL, userID)
@@ -179,7 +173,11 @@ func (h *LinkHandler) ShortenSingleJSON(c *fiber.Ctx) error {
 		status = fiber.StatusConflict
 	}
 
-	return c.Status(status).JSON(fiber.Map{"result": shortenedLinks[0].ShortURL})
+	type Response struct {
+		Result string `json:"result"`
+	}
+
+	return c.Status(status).JSON(Response{Result: shortenedLinks[0].ShortURL})
 }
 
 func (h *LinkHandler) ShortenBatchJSON(c *fiber.Ctx) error {
@@ -193,11 +191,11 @@ func (h *LinkHandler) ShortenBatchJSON(c *fiber.Ctx) error {
 	var links []*model.Link
 
 	if err := c.BodyParser(&links); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON payload"})
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: "Invalid JSON payload"})
 	}
 
 	if len(links) == 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "URLs are required"})
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: "URLs are required"})
 	}
 
 	shortenedLinks, err := h.useCase.Shorten(c.Context(), links, h.baseURL, userID)
@@ -263,11 +261,11 @@ func (h *LinkHandler) DeleteUserLinks(c *fiber.Ctx) error {
 	var hashes []string
 
 	if err := c.BodyParser(&hashes); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON payload"})
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: "Invalid JSON payload"})
 	}
 
 	if len(hashes) == 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Hashes are required"})
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: "Hashes are required"})
 	}
 
 	err = h.useCase.DeleteUserLinks(hashes, userID)
