@@ -5,43 +5,90 @@ import (
 	"os"
 )
 
-type Configuration struct {
+type Config struct {
 	ServerAddr      string
 	BaseURL         string
 	FileStoragePath string
 	DatabaseDSN     string
+	JwtSecret       string
 }
 
-func NewConfiguration() *Configuration {
-	return &Configuration{
+type Option func(*Config)
+
+func New(opts ...Option) *Config {
+	cfg := &Config{
 		ServerAddr:      ":8080",
 		BaseURL:         "http://localhost:8080",
 		FileStoragePath: "/tmp/short-url-db.json",
 		DatabaseDSN:     "",
+		JwtSecret:       "secret",
+	}
+
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	return cfg
+}
+
+func WithServerAddr(addr string) Option {
+	return func(c *Config) {
+		c.ServerAddr = addr
 	}
 }
 
-func (c *Configuration) ParseFlags() {
+func WithBaseURL(url string) Option {
+	return func(c *Config) {
+		c.BaseURL = url
+	}
+}
+
+func WithFileStoragePath(path string) Option {
+	return func(c *Config) {
+		c.FileStoragePath = path
+	}
+}
+
+func WithDatabaseDSN(dsn string) Option {
+	return func(c *Config) {
+		c.DatabaseDSN = dsn
+	}
+}
+
+func WithJwtSecret(secret string) Option {
+	return func(c *Config) {
+		c.JwtSecret = secret
+	}
+}
+
+func (c *Config) ParseFlags() {
 	flag.StringVar(&c.ServerAddr, "a", c.ServerAddr, "Server address")
 	flag.StringVar(&c.BaseURL, "b", c.BaseURL, "Base url for generated links")
 	flag.StringVar(&c.FileStoragePath, "f", c.FileStoragePath, "Path to file storage")
 	flag.StringVar(&c.DatabaseDSN, "d", c.DatabaseDSN, "Database DSN (optional)")
+	flag.StringVar(&c.JwtSecret, "j", c.JwtSecret, "JWT secret")
 
 	flag.Parse()
+}
 
-	if envServerAddr := os.Getenv("SERVER_ADDRESS"); envServerAddr != "" {
-		c.ServerAddr = envServerAddr
+func (c *Config) LoadFromEnv() {
+	if addr := os.Getenv("SERVER_ADDRESS"); addr != "" {
+		c.ServerAddr = addr
 	}
 
-	if envBaseURL := os.Getenv("BASE_URL"); envBaseURL != "" {
-		c.BaseURL = envBaseURL
+	if url := os.Getenv("BASE_URL"); url != "" {
+		c.BaseURL = url
 	}
 
-	if envFileStoragePath, ok := os.LookupEnv("FILE_STORAGE_PATH"); ok {
-		c.FileStoragePath = envFileStoragePath
+	if path, ok := os.LookupEnv("FILE_STORAGE_PATH"); ok {
+		c.FileStoragePath = path
 	}
 
-	if envDatabaseDSN, ok := os.LookupEnv("DATABASE_DSN"); ok {
-		c.DatabaseDSN = envDatabaseDSN
+	if dsn, ok := os.LookupEnv("DATABASE_DSN"); ok {
+		c.DatabaseDSN = dsn
+	}
+
+	if secret, ok := os.LookupEnv("JWT_SECRET"); ok {
+		c.JwtSecret = secret
 	}
 }

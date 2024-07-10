@@ -1,0 +1,25 @@
+linters:
+  enable-all: true
+  disable:
+    - depguard
+    - gomnd # Deprecated
+    - mnd
+    - tagliatelle # We have different conventions
+    - varnamelen # Too annoying
+    - execinquery # Deprecated
+    - ireturn # We return interfaces
+    - exhaustruct
+
+linters-settings:
+  wrapcheck:
+    ignorePackageGlobs:
+      - github.com/gofiber/fiber/*
+
+issues:
+  exclude-rules:
+    - path: (.+)_test.go
+      linters:
+        - lll
+        - funlen
+        - tparallel
+        - paralleltest

@@ -1,51 +1,79 @@
 package app
 
 import (
-	"github.com/go-chi/chi/v5"
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maxpain/shortener/config"
-	"github.com/maxpain/shortener/internal/gzip"
 	"github.com/maxpain/shortener/internal/handler"
-	"github.com/maxpain/shortener/internal/log"
+	memoryRepository "github.com/maxpain/shortener/internal/repository/memory"
+	postgresRepository "github.com/maxpain/shortener/internal/repository/postgres"
+	"github.com/maxpain/shortener/internal/usecase"
 )
 
-type Application struct {
-	handler *handler.Handler
-	Router  *chi.Mux
+type App struct {
+	*fiber.App
+	logger     *slog.Logger
+	repository usecase.Repository
 }
 
-func NewApplication(
-	cfg *config.Configuration,
-	logger *log.Logger,
-) (*Application, error) {
-	handler, err := handler.NewHandler(cfg, logger)
-
+func New(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*App, error) {
+	repo, err := getRepository(ctx, cfg, logger)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create repository: %w", err)
 	}
 
-	router := initRouter(handler, logger)
+	err = repo.Init(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize repository: %w", err)
+	}
 
-	return &Application{handler: handler, Router: router}, nil
+	useCase := usecase.New(repo, logger)
+	handler := handler.New(useCase, logger, cfg.BaseURL)
+	app := fiber.New()
+	setupRoutes(app, cfg, logger, handler)
+
+	return &App{
+		App:        app,
+		logger:     logger,
+		repository: repo,
+	}, nil
 }
 
-func (a *Application) Close() error {
-	return a.handler.Close()
+func getRepository(ctx context.Context, cfg *config.Config, logger *slog.Logger) (usecase.Repository, error) {
+	if cfg.DatabaseDSN != "" {
+		db, err := pgxpool.New(ctx, cfg.DatabaseDSN)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to database: %w", err)
+		}
+
+		logger.Info("Initialized postgres repository")
+
+		return postgresRepository.New(db, logger), nil
+	}
+
+	var file *os.File
+
+	if cfg.FileStoragePath != "" {
+		var err error
+
+		file, err = os.OpenFile(cfg.FileStoragePath, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o644)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open file %s : %w", cfg.FileStoragePath, err)
+		}
+
+		logger.Info("Initialized memory repository with persistence")
+	} else {
+		logger.Info("Initialized memory repository without persistence")
+	}
+
+	return memoryRepository.New(file, logger), nil
 }
 
-func initRouter(handler *handler.Handler, logger *log.Logger) *chi.Mux {
-	r := chi.NewRouter()
-
-	r.Use(logger.Middleware)
-	r.Use(gzip.Middleware)
-
-	r.Get("/ping", handler.Ping)
-	r.Get("/{hash}", handler.Redirect)
-	r.Post("/", handler.Shorten)
-	r.Post("/api/shorten", handler.ShortenJSON)
-	r.Post("/api/shorten/batch", handler.ShortenBatchJSON)
-
-	r.NotFound(handler.NotFound)
-	r.MethodNotAllowed(handler.NotFound)
-
-	return r
+func (a *App) Close() {
+	a.repository.Close()
 }
